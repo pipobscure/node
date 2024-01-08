@@ -402,12 +402,7 @@ std::optional<SeaConfig> ParseSingleExecutableConfig(
 
   std::optional<std::unordered_map<std::string, std::string>> assets_opt =
       parser.GetTopLevelDictOfStrings("assets");
-  if (!assets_opt.has_value()) {
-    FPrintF(stderr,
-            "\"assets\" field of %s is not a map of strings\n",
-            config_path);
-    return std::nullopt;
-  } else if (!assets_opt.value().empty()) {
+  if (assets_opt.has_value() && !assets_opt.value().empty()) {
     result.flags |= SeaFlags::kIncludeAssets;
     result.assets = std::move(assets_opt.value());
   }
