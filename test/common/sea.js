@@ -80,7 +80,8 @@ function injectAndCodeSign(targetExecutable, resource) {
       let certificatesFound = false;
       let stderr;
       try {
-        ({ stderr } = spawnSyncAndExitWithoutError('signtool', [ 'sign', '/fd', 'SHA256', targetExecutable ], {}));
+        ({ child, stderr } = spawnSyncAndExitWithoutError('signtool', [ 'sign', '/fd', 'SHA256', targetExecutable ], { status: undefined }));
+        if (child.status !== 0) throw new Error(`- process terminated with status ${child.status}, expected 0`);
         certificatesFound = true;
       } catch (err) {
         if (!/SignTool Error: No certificates were found that met all the given criteria/.test(stderr)) {
