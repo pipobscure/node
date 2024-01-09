@@ -77,19 +77,11 @@ function injectAndCodeSign(targetExecutable, resource) {
       console.log(err.message);
     }
     if (signtoolFound) {
-      let certificatesFound = false;
-      let stderr;
-      try {
-        ({ stderr } = spawnSyncAndExitWithoutError('signtool', [ 'sign', '/fd', 'SHA256', targetExecutable ], {}));
-        certificatesFound = true;
-      } catch (err) {
-        if (!/SignTool Error: No certificates were found that met all the given criteria/.test(stderr)) {
-          throw err;
-        }
-      }
-      if (certificatesFound) {
-        spawnSyncAndExitWithoutError('signtool', 'verify', '/pa', 'SHA256', targetExecutable, {});
-      }
+      spawnSyncAndExitWithoutError('signtool', [ 'sign', '/fd', 'SHA256', targetExecutable ], {
+        status: undefined,
+        stderr: /SignTool Error: No certificates were found that met all the given criteria/
+      });
+      spawnSyncAndExitWithoutError('signtool', [ 'verify', '/pa', 'SHA256', targetExecutable ], {});
     }
   }
 }
