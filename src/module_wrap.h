@@ -106,7 +106,7 @@ class ModuleWrap : public BaseObject {
   static void InstantiateSync(const v8::FunctionCallbackInfo<v8::Value>& args);
   static void EvaluateSync(const v8::FunctionCallbackInfo<v8::Value>& args);
   static void GetNamespaceSync(const v8::FunctionCallbackInfo<v8::Value>& args);
-
+  static void IsGraphAsync(const v8::FunctionCallbackInfo<v8::Value>& args);
   static void Link(const v8::FunctionCallbackInfo<v8::Value>& args);
   static void Instantiate(const v8::FunctionCallbackInfo<v8::Value>& args);
   static void Evaluate(const v8::FunctionCallbackInfo<v8::Value>& args);
