@@ -694,6 +694,14 @@ void ModuleWrap::EvaluateSync(const FunctionCallbackInfo<Value>& args) {
   args.GetReturnValue().Set(module->GetModuleNamespace());
 }
 
+void ModuleWrap::IsGraphAsync(const FunctionCallbackInfo<Value>& args) {
+  Isolate* isolate = args.GetIsolate();
+  ModuleWrap* obj;
+  ASSIGN_OR_RETURN_UNWRAP(&obj, args.This());
+  Local<Module> module = obj->module_.Get(isolate);
+  args.GetReturnValue().Set(module->IsGraphAsync());
+}
+
 void ModuleWrap::GetNamespaceSync(const FunctionCallbackInfo<Value>& args) {
   Realm* realm = Realm::GetCurrent(args);
   Isolate* isolate = args.GetIsolate();
@@ -1087,6 +1095,7 @@ void ModuleWrap::CreatePerIsolateProperties(IsolateData* isolate_data,
   SetProtoMethod(isolate, tpl, "link", Link);
   SetProtoMethod(isolate, tpl, "getModuleRequests", GetModuleRequests);
   SetProtoMethod(isolate, tpl, "instantiateSync", InstantiateSync);
+  SetProtoMethod(isolate, tpl, "isGraphAsync", IsGraphAsync);
   SetProtoMethod(isolate, tpl, "evaluateSync", EvaluateSync);
   SetProtoMethod(isolate, tpl, "getNamespaceSync", GetNamespaceSync);
   SetProtoMethod(isolate, tpl, "instantiate", Instantiate);
@@ -1142,6 +1151,7 @@ void ModuleWrap::RegisterExternalReferences(
   registry->Register(Link);
   registry->Register(GetModuleRequests);
   registry->Register(InstantiateSync);
+  registry->Register(IsGraphAsync);
   registry->Register(EvaluateSync);
   registry->Register(GetNamespaceSync);
   registry->Register(Instantiate);
