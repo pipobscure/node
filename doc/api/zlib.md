@@ -1006,6 +1006,945 @@ added: v0.5.8
 Decompress either a Gzip- or Deflate-compressed stream by auto-detecting
 the header.
 
+## Class: `zlib.ZipBuffer`
+
+<!-- YAML
+added: REPLACEME
+-->
+
+> Stability: 1 - Experimental
+
+An in-memory, **zero-copy** view over the entries of a ZIP archive already
+held in a `Buffer`, `TypedArray`, `DataView`, or `ArrayBuffer`. Its set of
+entries can be edited - entries added or removed - but, unlike [`ZipFile`][],
+those edits are **not** written into the source buffer: a newly added entry is
+held as a separate in-memory [`ZipEntry`][] (the passed buffer is a fixed-size
+view with no room to append to), and removal just drops the entry from
+`ZipBuffer`'s index. The original bytes are never modified.
+[`zipBuffer.toBuffer()`][] serializes the current set of entries into a fresh
+archive.
+
+`ZipBuffer` does not copy the archive you hand it. It keeps a view onto that
+memory and reads each entry's content lazily and directly from it, which is
+what makes construction cheap regardless of archive size. The trade-off is
+that you **must not modify or reuse** that memory - including the
+`ArrayBuffer` backing a `TypedArray`/`DataView` - while the `ZipBuffer`, or
+any [`ZipEntry`][] obtained from it, is still in use: a later read would
+observe the change and may fail or return corrupt data. Pass a copy (for
+example `Buffer.from(source)`) if the source might be mutated or reused.
+
+`add()` and `toBuffer()` each have a `*Sync` counterpart
+([`addSync()`][`zipBuffer.addSync()`], [`toBufferSync()`][`zipBuffer.toBufferSync()`])
+that performs the same compression work synchronously. As with the
+synchronous `node:fs` APIs, these block the Node.js event loop and further
+JavaScript execution until the operation completes; use them only where
+synchronous execution is appropriate (for example, short-lived scripts or
+startup code), not in code that must stay responsive.
+
+```mjs
+import { ZipBuffer } from 'node:zlib';
+import { readFileSync, writeFileSync } from 'node:fs';
+import { Buffer } from 'node:buffer';
+
+const zip = new ZipBuffer(readFileSync('archive.zip'));
+for (const [name, entry] of zip) {
+  console.log(name, entry.size);
+}
+await zip.add('hello.txt', Buffer.from('Hello, world!'));
+zip.delete('unwanted.txt');
+writeFileSync('archive.zip', await zip.toBuffer());
+```
+
+```cjs
+const { ZipBuffer } = require('node:zlib');
+const { readFileSync, writeFileSync } = require('node:fs');
+
+async function main() {
+  const zip = new ZipBuffer(readFileSync('archive.zip'));
+  for (const [name, entry] of zip) {
+    console.log(name, entry.size);
+  }
+  await zip.add('hello.txt', Buffer.from('Hello, world!'));
+  zip.delete('unwanted.txt');
+  writeFileSync('archive.zip', await zip.toBuffer());
+}
+main();
+```
+
+### `new zlib.ZipBuffer(buffer)`
+
+<!-- YAML
+added: REPLACEME
+-->
+
+* `buffer` {Buffer|TypedArray|DataView|ArrayBuffer} A complete ZIP archive.
+
+Parses the archive's central directory. Throws an [`ERR_ZIP_INVALID_ARCHIVE`][]
+or [`ERR_ZIP_UNSUPPORTED_FEATURE`][] error if `buffer` is not a well-formed,
+supported archive.
+
+`buffer` is **not copied**: the `ZipBuffer` retains a zero-copy view of it (for
+a `TypedArray`, `DataView`, or `ArrayBuffer`, of the underlying `ArrayBuffer`)
+and reads entry content directly from it on demand. Do not mutate or reuse that
+memory while the `ZipBuffer` or any entry read from it is still live; pass a
+copy if it might change.
+
+### `zipBuffer.add(filename, data[, options])`
+
+<!-- YAML
+added: REPLACEME
+-->
+
+* `filename` {string} The entry's name within the archive. A trailing `/`
+  marks a directory entry.
+* `data` {Buffer|TypedArray|DataView|ArrayBuffer} The entry's complete,
+  uncompressed content.
+* `options` {Object} See [`zlib.ZipEntry.create()`][].
+* Returns: {Promise} Fulfilled with the created {ZipEntry}.
+
+Equivalent to `zipBuffer.addEntry(await zlib.ZipEntry.create(filename, data,
+options))`.
+
+### `zipBuffer.addSync(filename, data[, options])`
+
+<!-- YAML
+added: REPLACEME
+-->
+
+* `filename` {string} The entry's name within the archive. A trailing `/`
+  marks a directory entry.
+* `data` {Buffer|TypedArray|DataView|ArrayBuffer} The entry's complete,
+  uncompressed content.
+* `options` {Object} See [`zlib.ZipEntry.createSync()`][].
+* Returns: {ZipEntry} The created entry.
+
+The synchronous version of [`zipBuffer.add()`][]. Equivalent to
+`zipBuffer.addEntry(zlib.ZipEntry.createSync(filename, data, options))`.
+
+### `zipBuffer.addEntry(entry)`
+
+<!-- YAML
+added: REPLACEME
+-->
+
+* `entry` {ZipEntry}
+* Returns: {ZipEntry} `entry`.
+
+Adds an already-built entry, keyed by its own [`zipEntry.name`][]. Replaces
+any existing entry of that name.
+
+### `zipBuffer.clear()`
+
+<!-- YAML
+added: REPLACEME
+-->
+
+Removes every entry.
+
+### `zipBuffer.comment`
+
+<!-- YAML
+added: REPLACEME
+-->
+
+* Type: {string}
+
+The archive-level comment, preserved across [`zipBuffer.toBuffer()`][] calls
+unless overridden.
+
+### `zipBuffer.delete(name)`
+
+<!-- YAML
+added: REPLACEME
+-->
+
+* `name` {string}
+* Returns: {boolean} `true` if an entry named `name` existed and was removed.
+
+### `zipBuffer.entries()`
+
+<!-- YAML
+added: REPLACEME
+-->
+
+* Returns: {Iterator} of `[name, entry]` pairs, where `entry` is a
+  [`ZipEntry`][].
+
+### `zipBuffer.forEach(callback[, thisArg])`
+
+<!-- YAML
+added: REPLACEME
+-->
+
+* `callback` {Function}
+* `thisArg` {any}
+
+Calls `callback` once for each entry, in the order the archive lists them.
+
+### `zipBuffer.get(name)`
+
+<!-- YAML
+added: REPLACEME
+-->
+
+* `name` {string}
+* Returns: {ZipEntry}
+
+Throws [`ERR_ZIP_ENTRY_NOT_FOUND`][] if the archive has no entry named `name`.
+
+### `zipBuffer.has(name)`
+
+<!-- YAML
+added: REPLACEME
+-->
+
+* `name` {string}
+* Returns: {boolean}
+
+### `zipBuffer.keys()`
+
+<!-- YAML
+added: REPLACEME
+-->
+
+* Returns: {Iterator} of entry names.
+
+### `zipBuffer.size`
+
+<!-- YAML
+added: REPLACEME
+-->
+
+* Type: {number}
+
+The number of entries in the archive.
+
+### `zipBuffer.toBuffer([options])`
+
+<!-- YAML
+added: REPLACEME
+-->
+
+* `options` {string|Object} An archive comment, as a shorthand for
+  `{ comment: options }`.
+  * `comment` {string} An archive comment. **Default:** [`zipBuffer.comment`][].
+  * `baseOffset` {number} Shifts every offset the archive records by this
+    many bytes, so the serialized archive is self-describing even when it is
+    written somewhere other than the start of its eventual file - for example,
+    after `baseOffset` bytes of other content already written to the same
+    output. **Default:** `0`.
+* Returns: {Promise} Fulfilled with a {Buffer} containing the serialized
+  archive.
+
+Serializes the current set of entries - in the order they were added or
+read - into a fresh archive, switching to Zip64 structures automatically as
+needed (see [`zlib.createZipArchive()`][]).
+
+### `zipBuffer.toBufferSync([options])`
+
+<!-- YAML
+added: REPLACEME
+-->
+
+* `options` {string|Object} See [`zipBuffer.toBuffer()`][].
+* Returns: {Buffer} The serialized archive.
+
+The synchronous version of [`zipBuffer.toBuffer()`][] (see
+[`zlib.createZipArchiveSync()`][]).
+
+### `zipBuffer.values()`
+
+<!-- YAML
+added: REPLACEME
+-->
+
+* Returns: {Iterator} of [`ZipEntry`][].
+
+### `zipBuffer.writable`
+
+<!-- YAML
+added: REPLACEME
+-->
+
+* Type: {boolean}
+
+Always `true`.
+
+## Class: `zlib.ZipEntry`
+
+<!-- YAML
+added: REPLACEME
+-->
+
+> Stability: 1 - Experimental
+
+A single file or directory inside a ZIP archive. Instances are produced by
+[`ZipBuffer`][] and [`ZipFile`][], or created directly for writing with
+`ZipEntry.create()`/`ZipEntry.createStream()`.
+
+`create()` and `content()` each have a `*Sync` counterpart (the streaming
+`contentIterator()` does not). As with the synchronous `node:fs` APIs, these
+block the
+Node.js event loop and further JavaScript execution until the operation
+(including any deflate/inflate pass) completes; use them only where
+synchronous execution is appropriate (for example, short-lived scripts or
+startup code), not in code that must stay responsive.
+
+### Static method: `zlib.ZipEntry.create(filename, data[, options])`
+
+<!-- YAML
+added: REPLACEME
+-->
+
+* `filename` {string} The entry's name within the archive. A trailing `/`
+  marks a directory entry.
+* `data` {Buffer|TypedArray|DataView|ArrayBuffer} The entry's complete,
+  uncompressed content. Must be empty when `filename` names a directory.
+* `options` {Object}
+  * `comment` {string} An entry comment.
+  * `mode` {integer} Unix permission bits. **Default:** `0o644` (`0o755` for
+    directories).
+  * `modified` {Date} The entry's modification time. **Default:** the
+    current time.
+  * `method` {string} One of `'deflate'`, `'store'`, or `'zstd'`. **Default:**
+    `'deflate'`, except for directories and empty content, which are always
+    stored.
+* Returns: {Promise} Fulfilled with a {ZipEntry}.
+
+Compresses `data` (unless `method` is `'store'`, or compression would not
+reduce its size) and computes its CRC-32.
+
+### Static method: `zlib.ZipEntry.createStream(filename, source[, options])`
+
+<!-- YAML
+added: REPLACEME
+-->
+
+* `filename` {string} The entry's name within the archive. Must not end
+  in `/`.
+* `source` {AsyncIterable} Yields the entry's uncompressed content as
+  `Uint8Array` chunks.
+* `options` {Object}
+  * `comment` {string} An entry comment.
+  * `mode` {integer} Unix permission bits. **Default:** `0o644`.
+  * `modified` {Date} The entry's modification time. **Default:** the
+    current time.
+  * `method` {string} One of `'deflate'`, `'store'`, or `'zstd'`. **Default:**
+    `'deflate'`.
+* Returns: {ZipEntry}
+
+Creates an entry whose content is compressed on the fly as it is serialized
+by [`zlib.createZipArchive()`][], without buffering `source` in memory. Its
+`size`, `compressedSize`, and `crc32` only become available once
+serialization has finished. There is no synchronous counterpart: streaming
+entries only make sense with an asynchronous, incrementally-produced
+`source`.
+
+`source` is drained exactly once, during serialization. Until that happens
+the entry has no readable content, so [`zipEntry.content()`][],
+[`zipEntry.contentSync()`][], and [`zipEntry.contentIterator()`][] throw
+[`ERR_INVALID_STATE`][]. If the entry is serialized by adding it to a writable
+[`ZipFile`][] with [`zipFile.addEntry()`][] (or `addEntrySync()`), it is then
+**promoted in place** to a file-backed entry pointing at the copy just written,
+so it becomes readable (and can be serialized again) for as long as that
+`ZipFile` stays open. Serializing it any other way (for example directly
+through [`zlib.createZipArchive()`][]) leaves it spent and unreadable.
+
+### Static method: `zlib.ZipEntry.createSync(filename, data[, options])`
+
+<!-- YAML
+added: REPLACEME
+-->
+
+* `filename` {string} The entry's name within the archive. A trailing `/`
+  marks a directory entry.
+* `data` {Buffer|TypedArray|DataView|ArrayBuffer} The entry's complete,
+  uncompressed content. Must be empty when `filename` names a directory.
+* `options` {Object} See [`zlib.ZipEntry.create()`][].
+* Returns: {ZipEntry}
+
+The synchronous version of [`zlib.ZipEntry.create()`][].
+
+### Static method: `zlib.ZipEntry.read(buffer)`
+
+<!-- YAML
+added: REPLACEME
+-->
+
+* `buffer` {Buffer|TypedArray|DataView|ArrayBuffer} A complete ZIP archive.
+* Returns: {Iterator} of {ZipEntry}.
+
+Parses every entry out of `buffer` directly, without indexing it into a
+[`ZipBuffer`][]. Like [`ZipBuffer`][], the yielded entries hold zero-copy views
+of `buffer` rather than copies of their content, so the same rule applies: do
+not mutate or reuse `buffer` while any of them is still in use.
+
+### `zipEntry.comment`
+
+<!-- YAML
+added: REPLACEME
+-->
+
+* Type: {string}
+
+### `zipEntry.compressed`
+
+<!-- YAML
+added: REPLACEME
+-->
+
+* Type: {boolean}
+
+`true` if the entry uses the deflate compression method.
+
+### `zipEntry.compressedSize`
+
+<!-- YAML
+added: REPLACEME
+-->
+
+* Type: {number}
+
+### `zipEntry.content([options])`
+
+<!-- YAML
+added: REPLACEME
+-->
+
+* `options` {Object}
+  * `verify` {boolean} Verify the entry's CRC-32 checksum. **Default:** `true`.
+  * `maxSize` {number} Reject content declaring more than this many
+    uncompressed bytes, before allocating anything. **Default:**
+    [`zlib.getMaxZipContentSize()`][].
+* Returns: {Promise} Fulfilled with a {Buffer} containing the entry's
+  decompressed content.
+
+Throws an [`ERR_ZIP_ENTRY_TOO_LARGE`][] error if the entry's declared size
+exceeds `maxSize`, an [`ERR_ZIP_ENTRY_CORRUPT`][] error if the content fails
+CRC-32 verification or does not match its declared size, and an
+[`ERR_INVALID_STATE`][] error for a streaming entry
+([`zlib.ZipEntry.createStream()`][]) whose content is not yet available (see
+that method for when a streaming entry becomes readable).
+
+### `zipEntry.contentSync([options])`
+
+<!-- YAML
+added: REPLACEME
+-->
+
+* `options` {Object} See [`zipEntry.content()`][].
+* Returns: {Buffer} The entry's decompressed content.
+
+The synchronous version of [`zipEntry.content()`][].
+
+### `zipEntry.contentIterator([options])`
+
+<!-- YAML
+added: REPLACEME
+-->
+
+* `options` {Object}
+  * `verify` {boolean} Verify the entry's CRC-32 checksum. **Default:** `true`.
+  * `maxSize` {number} Reject content declaring more than this many
+    uncompressed bytes. **Default:** no limit.
+* Returns: {AsyncIterator} of {Buffer} chunks of the entry's decompressed
+  content.
+
+Unlike [`zipEntry.content()`][], this does not buffer the whole member in
+memory. For a file-backed entry (one returned by [`zipFile.get()`][]) the
+compressed bytes are read from disk as the iterator is consumed and nothing is
+retained; the entry is valid only while its `ZipFile` is open.
+
+### `zipEntry.crc32`
+
+<!-- YAML
+added: REPLACEME
+-->
+
+* Type: {number}
+
+### `zipEntry.flags`
+
+<!-- YAML
+added: REPLACEME
+-->
+
+* Type: {number}
+
+The entry's raw general-purpose bit flag.
+
+### `zipEntry.isDirectory`
+
+<!-- YAML
+added: REPLACEME
+-->
+
+* Type: {boolean}
+
+### `zipEntry.isFile`
+
+<!-- YAML
+added: REPLACEME
+-->
+
+* Type: {boolean}
+
+### `zipEntry.mode`
+
+<!-- YAML
+added: REPLACEME
+-->
+
+* Type: {number}
+
+The entry's Unix permission bits, or `0` if the archive was not written on
+a Unix-like system.
+
+### `zipEntry.modified`
+
+<!-- YAML
+added: REPLACEME
+-->
+
+* Type: {Date}
+
+### `zipEntry.method`
+
+<!-- YAML
+added: REPLACEME
+-->
+
+* Type: {number}
+
+The entry's raw compression method: `0` for stored, `8` for deflate, `93`
+for Zstandard.
+
+### `zipEntry.name`
+
+<!-- YAML
+added: REPLACEME
+-->
+
+* Type: {string}
+
+### `zipEntry.rawContent`
+
+<!-- YAML
+added: REPLACEME
+-->
+
+* Type: {Buffer|null}
+
+The entry's raw (still compressed, if applicable) content when it is held in
+memory, or `null` when there is no in-memory buffer to expose - for an entry
+created with [`zlib.ZipEntry.createStream()`][], or a file-backed entry
+returned by [`zipFile.get()`][], whose bytes are read from disk on demand
+rather than retained. Use [`zipEntry.content()`][] or
+[`zipEntry.contentIterator()`][] to read a file-backed entry.
+
+### `zipEntry.size`
+
+<!-- YAML
+added: REPLACEME
+-->
+
+* Type: {number}
+
+The entry's uncompressed size, in bytes.
+
+## Class: `zlib.ZipFile`
+
+<!-- YAML
+added: REPLACEME
+-->
+
+> Stability: 1 - Experimental
+
+A random-access view over the entries of a ZIP archive on disk. Only the
+archive's tail and central directory are read up front; member content is
+read from disk lazily, on demand. Writable when opened with
+`{ writable: true }`: [`zipFile.addEntry()`][]/[`zipFile.add()`][] append the
+new member's data where the central directory used to be, then rewrite the
+central directory immediately after it; [`zipFile.delete()`][] just rewrites
+the central directory. Both mean the file is altered as soon as the method's
+returned `Promise` fulfills. Deleted or replaced members are left behind as
+dead space; [`zipFile.compact()`][] produces a stream with none.
+
+Every method has a `*Sync` counterpart. As with the synchronous `node:fs`
+APIs, these block the Node.js event loop and further JavaScript execution
+until the operation completes; use them only where synchronous execution is
+appropriate (for example, short-lived scripts or startup code), not in code
+that must stay responsive. A synchronous method throws `ERR_INVALID_STATE`
+if called while an asynchronous `add()`, `addEntry()`, `delete()`, or
+`close()` on the same `ZipFile` has not settled yet, since letting the two
+interleave could corrupt the archive.
+
+```mjs
+import { ZipFile } from 'node:zlib';
+import { Buffer } from 'node:buffer';
+
+const zip = await ZipFile.open('archive.zip', { writable: true });
+try {
+  const entry = await zip.get('member.txt');
+  console.log((await entry.content()).toString());
+  for await (const chunk of zip.stream('huge.bin')) {
+    // Process each chunk without buffering the whole member.
+  }
+  await zip.add('new.txt', Buffer.from('hello'));
+  await zip.delete('unwanted.txt');
+} finally {
+  await zip.close();
+}
+```
+
+```cjs
+const { ZipFile } = require('node:zlib');
+
+async function main() {
+  const zip = await ZipFile.open('archive.zip', { writable: true });
+  try {
+    const entry = await zip.get('member.txt');
+    console.log((await entry.content()).toString());
+    for await (const chunk of zip.stream('huge.bin')) {
+      // Process each chunk without buffering the whole member.
+    }
+    await zip.add('new.txt', Buffer.from('hello'));
+    await zip.delete('unwanted.txt');
+  } finally {
+    await zip.close();
+  }
+}
+main();
+```
+
+### Static method: `zlib.ZipFile.open(filename[, options])`
+
+<!-- YAML
+added: REPLACEME
+-->
+
+* `filename` {string}
+* `options` {Object}
+  * `writable` {boolean} Open the underlying file for both reading and
+    writing (`'r+'`), enabling [`zipFile.addEntry()`][]/[`zipFile.add()`][]/
+    [`zipFile.delete()`][]. **Default:** `false`.
+* Returns: {Promise} Fulfilled with a {ZipFile}.
+
+### Static method: `zlib.ZipFile.openSync(filename[, options])`
+
+<!-- YAML
+added: REPLACEME
+-->
+
+* `filename` {string}
+* `options` {Object} See [`zlib.ZipFile.open()`][].
+* Returns: {ZipFile}
+
+The synchronous version of [`zlib.ZipFile.open()`][].
+
+### `zipFile.add(filename, data[, options])`
+
+<!-- YAML
+added: REPLACEME
+-->
+
+* `filename` {string} The entry's name within the archive. A trailing `/`
+  marks a directory entry.
+* `data` {Buffer|TypedArray|DataView|ArrayBuffer} The entry's complete,
+  uncompressed content.
+* `options` {Object} See [`zlib.ZipEntry.create()`][].
+* Returns: {Promise} Fulfilled with the created {ZipEntry}.
+
+Equivalent to `zipFile.addEntry(await zlib.ZipEntry.create(filename, data,
+options))`.
+
+### `zipFile.addEntry(entry)`
+
+<!-- YAML
+added: REPLACEME
+-->
+
+* `entry` {ZipEntry}
+* Returns: {Promise} Fulfilled with `entry`.
+
+Writes `entry` where the central directory currently starts, then rewrites
+the central directory to include it, replacing any existing entry of the
+same name. Throws [`ERR_ZIP_NOT_WRITABLE`][] if the `ZipFile` was not opened
+with `{ writable: true }`.
+
+The returned (same) `entry` is left readable: a streaming entry created with
+[`zlib.ZipEntry.createStream()`][], which would otherwise be spent once
+serialized, is promoted in place to a file-backed entry pointing at the copy
+just written (valid while this `ZipFile` is open). In-memory entries keep their
+own buffer unchanged.
+
+### `zipFile.addEntrySync(entry)`
+
+<!-- YAML
+added: REPLACEME
+-->
+
+* `entry` {ZipEntry}
+* Returns: {ZipEntry} `entry`.
+
+The synchronous version of [`zipFile.addEntry()`][]. `entry` must not be a
+pending streaming entry (one created with
+[`zlib.ZipEntry.createStream()`][]) - there is no synchronous way to drain
+its asynchronous source.
+
+### `zipFile.addSync(filename, data[, options])`
+
+<!-- YAML
+added: REPLACEME
+-->
+
+* `filename` {string} The entry's name within the archive. A trailing `/`
+  marks a directory entry.
+* `data` {Buffer|TypedArray|DataView|ArrayBuffer} The entry's complete,
+  uncompressed content.
+* `options` {Object} See [`zlib.ZipEntry.createSync()`][].
+* Returns: {ZipEntry} The created entry.
+
+The synchronous version of [`zipFile.add()`][]. Equivalent to
+`zipFile.addEntrySync(zlib.ZipEntry.createSync(filename, data, options))`.
+
+### `zipFile.close()`
+
+<!-- YAML
+added: REPLACEME
+-->
+
+* Returns: {Promise}
+
+Closes the underlying file handle.
+
+### `zipFile.closeSync()`
+
+<!-- YAML
+added: REPLACEME
+-->
+
+The synchronous version of [`zipFile.close()`][].
+
+### `zipFile.comment`
+
+<!-- YAML
+added: REPLACEME
+-->
+
+* Type: {string}
+
+The archive-level comment, preserved across [`zipFile.addEntry()`][]/
+[`zipFile.delete()`][] calls.
+
+### `zipFile.compact([comment])`
+
+<!-- YAML
+added: REPLACEME
+-->
+
+* `comment` {string} An archive comment. **Default:** [`zipFile.comment`][].
+* Returns: {stream.Readable} A stream of the currently live entries,
+  serialized as a fresh archive with no dead space left by prior
+  [`zipFile.addEntry()`][]/[`zipFile.delete()`][] calls.
+
+Does not modify the open file; pipe the result into a new one:
+
+```mjs
+import { createWriteStream } from 'node:fs';
+zip.compact().pipe(createWriteStream('compacted.zip'));
+```
+
+### `zipFile.compactSync([comment])`
+
+<!-- YAML
+added: REPLACEME
+-->
+
+* `comment` {string} An archive comment. **Default:** [`zipFile.comment`][].
+* Returns: {Buffer} The currently live entries, serialized as a fresh
+  archive with no dead space left by prior
+  [`zipFile.addEntry()`][]/[`zipFile.delete()`][] calls.
+
+The synchronous version of [`zipFile.compact()`][]. Does not modify the
+open file.
+
+### `zipFile.delete(name)`
+
+<!-- YAML
+added: REPLACEME
+-->
+
+* `name` {string}
+* Returns: {Promise} Fulfilled with `true` if an entry named `name` existed
+  and was removed, `false` otherwise.
+
+Rewrites the central directory without writing any new content - the
+archive does not grow. Throws [`ERR_ZIP_NOT_WRITABLE`][] if the `ZipFile` was
+not opened with `{ writable: true }`.
+
+### `zipFile.deleteSync(name)`
+
+<!-- YAML
+added: REPLACEME
+-->
+
+* `name` {string}
+* Returns: {boolean} `true` if an entry named `name` existed and was
+  removed, `false` otherwise.
+
+The synchronous version of [`zipFile.delete()`][].
+
+### `zipFile.entries()`
+
+<!-- YAML
+added: REPLACEME
+-->
+
+* Returns: {Iterator} of `[name, entry]` pairs, where `entry` is a
+  {Promise} fulfilled with a [`ZipEntry`][].
+
+### `zipFile.entriesSync()`
+
+<!-- YAML
+added: REPLACEME
+-->
+
+* Returns: {Iterator} of `[name, entry]` pairs, where `entry` is a resolved
+  [`ZipEntry`][] (not a `Promise`).
+
+The synchronous version of [`zipFile.entries()`][].
+
+### `zipFile.forEach(callback[, thisArg])`
+
+<!-- YAML
+added: REPLACEME
+-->
+
+* `callback` {Function}
+* `thisArg` {any}
+
+### `zipFile.forEachSync(callback[, thisArg])`
+
+<!-- YAML
+added: REPLACEME
+-->
+
+* `callback` {Function}
+* `thisArg` {any}
+
+The synchronous version of [`zipFile.forEach()`][]: `callback` is invoked
+with a resolved [`ZipEntry`][] instead of a `Promise`.
+
+### `zipFile.get(name)`
+
+<!-- YAML
+added: REPLACEME
+-->
+
+* `name` {string}
+* Returns: {Promise} Fulfilled with a {ZipEntry}.
+
+Returns a lazy, file-backed [`ZipEntry`][] for `name`. Nothing is read from
+disk here and no content is buffered: the returned entry reads (and, for
+[`zipEntry.content()`][], decompresses) its member straight from the file on
+each access, and the `ZipFile` retains no member content. The entry is valid
+only while this `ZipFile` is open. Reading its content later may throw
+[`ERR_ZIP_ENTRY_TOO_LARGE`][] if the member is too large to hold in a single
+buffer; use [`zipEntry.contentIterator()`][] (or [`zipFile.stream()`][])
+instead. Throws [`ERR_ZIP_ENTRY_NOT_FOUND`][] if the archive has no entry
+named `name`.
+
+### `zipFile.getSync(name)`
+
+<!-- YAML
+added: REPLACEME
+-->
+
+* `name` {string}
+* Returns: {ZipEntry}
+
+The synchronous version of [`zipFile.get()`][]. Like `get()`, it reads
+nothing up front and only builds the lazy handle, so it does not itself block
+on I/O - but reads performed later through the returned entry (such as
+[`zipEntry.contentSync()`][]) do; see the note above on synchronous methods.
+
+### `zipFile.has(name)`
+
+<!-- YAML
+added: REPLACEME
+-->
+
+* `name` {string}
+* Returns: {boolean}
+
+### `zipFile.keys()`
+
+<!-- YAML
+added: REPLACEME
+-->
+
+* Returns: {Iterator} of entry names.
+
+### `zipFile.size`
+
+<!-- YAML
+added: REPLACEME
+-->
+
+* Type: {number}
+
+The number of entries in the archive.
+
+### `zipFile.stream(name[, options])`
+
+<!-- YAML
+added: REPLACEME
+-->
+
+* `name` {string}
+* `options` {Object}
+  * `verify` {boolean} Verify the entry's CRC-32 checksum. **Default:** `true`.
+  * `maxSize` {number} Reject content declaring more than this many
+    uncompressed bytes. **Default:** no limit.
+* Returns: {Promise} Fulfilled with a {stream.Readable} of the member's
+  decompressed content, without buffering the whole member in memory.
+
+Convenience wrapper that resolves to a `Readable` over
+[`zipEntry.contentIterator()`][] of [`zipFile.get()`][]`(name)`; the
+compressed bytes are read from disk as the stream is consumed. The returned
+promise rejects with [`ERR_ZIP_ENTRY_NOT_FOUND`][] if the archive has no entry
+named `name`.
+
+### `zipFile.values()`
+
+<!-- YAML
+added: REPLACEME
+-->
+
+* Returns: {Iterator} of {Promise} objects, each fulfilled with a
+  [`ZipEntry`][].
+
+### `zipFile.valuesSync()`
+
+<!-- YAML
+added: REPLACEME
+-->
+
+* Returns: {Iterator} of resolved [`ZipEntry`][] values (not `Promise`s).
+
+The synchronous version of [`zipFile.values()`][].
+
+### `zipFile.writable`
+
+<!-- YAML
+added: REPLACEME
+-->
+
+* Type: {boolean}
+
+Whether this `ZipFile` was opened with `{ writable: true }`.
+
 ## Class: `zlib.ZlibBase`
 
 <!-- YAML
@@ -1330,6 +2269,101 @@ added: v0.5.8
 
 Creates and returns a new [`Unzip`][] object.
 
+## `zlib.createZipArchive(entries[, options])`
+
+<!-- YAML
+added: REPLACEME
+-->
+
+> Stability: 1 - Experimental
+
+* `entries` {Iterable|AsyncIterable} of [`ZipEntry`][].
+* `options` {string|Object} An archive comment, as a shorthand for
+  `{ comment: options }`.
+  * `comment` {string} An archive comment.
+  * `baseOffset` {number} Shifts every local/central header offset the
+    archive records by this many bytes, so the emitted stream is
+    self-describing even when something else is written before it - for
+    example, appending the archive after `baseOffset` bytes already written to
+    the same file, rather than at its start. **Default:** `0`.
+* Returns: {stream.Readable} A byte stream of the serialized archive.
+
+Serializes `entries` into a ZIP archive, switching to Zip64 structures
+automatically once the entry count, or any offset or size, exceeds what the
+classic 32-/16-bit ZIP fields can hold. The returned `Readable` is also an
+`AsyncIterable` of the same {Buffer} chunks it streams.
+
+```mjs
+import { createWriteStream } from 'node:fs';
+import { pipeline } from 'node:stream/promises';
+import { Buffer } from 'node:buffer';
+import { ZipEntry, createZipArchive } from 'node:zlib';
+
+const entries = [
+  await ZipEntry.create('hello.txt', Buffer.from('Hello, world!')),
+  await ZipEntry.create('data/', Buffer.alloc(0)),
+];
+await pipeline(
+  createZipArchive(entries, 'created by node:zlib'),
+  createWriteStream('archive.zip'),
+);
+```
+
+```cjs
+const { createWriteStream } = require('node:fs');
+const { pipeline } = require('node:stream/promises');
+const { ZipEntry, createZipArchive } = require('node:zlib');
+
+async function main() {
+  const entries = [
+    await ZipEntry.create('hello.txt', Buffer.from('Hello, world!')),
+    await ZipEntry.create('data/', Buffer.alloc(0)),
+  ];
+  await pipeline(
+    createZipArchive(entries, 'created by node:zlib'),
+    createWriteStream('archive.zip'),
+  );
+}
+main();
+```
+
+Passing `options.baseOffset` produces an archive that is valid immediately
+when placed after other content in the same file, without relying on a
+reader's self-extracting-archive detection to compensate for the shift:
+
+```mjs
+import { createWriteStream } from 'node:fs';
+import { Buffer } from 'node:buffer';
+import { ZipEntry, createZipArchive } from 'node:zlib';
+
+const prefix = Buffer.from('#!/bin/sh\nexit 0\n');
+const entries = [await ZipEntry.create('hello.txt', Buffer.from('Hello, world!'))];
+const out = createWriteStream('self-extracting.zip');
+out.write(prefix);
+createZipArchive(entries, { baseOffset: prefix.byteLength }).pipe(out);
+```
+
+## `zlib.createZipArchiveSync(entries[, options])`
+
+<!-- YAML
+added: REPLACEME
+-->
+
+> Stability: 1 - Experimental
+
+* `entries` {Iterable} of [`ZipEntry`][].
+* `options` {string|Object} See [`zlib.createZipArchive()`][].
+* Returns: {Iterator} of {Buffer} chunks making up the serialized archive.
+
+The synchronous version of [`zlib.createZipArchive()`][]. Blocks the
+Node.js event loop and further JavaScript execution until the whole
+archive (including any deflate passes) has been produced; use only where
+synchronous execution is appropriate (for example, short-lived scripts or
+startup code), not in code that must stay responsive. `entries` must be a
+plain (synchronous) `Iterable` - a streaming entry created with
+[`zlib.ZipEntry.createStream()`][] throws when its turn to serialize comes
+up, since draining its asynchronous source has no synchronous equivalent.
+
 ## `zlib.createZstdCompress([options])`
 
 > Stability: 1 - Experimental
@@ -1357,6 +2391,36 @@ added:
 * `options` {zstd options}
 
 Creates and returns a new [`ZstdDecompress`][] object.
+
+## `zlib.getMaxZipContentSize()`
+
+<!-- YAML
+added: REPLACEME
+-->
+
+> Stability: 1 - Experimental
+
+* Returns: {number}
+
+The current default ceiling, in bytes, applied by [`zipEntry.content()`][]
+when no explicit `maxSize` is given. **Default:** `268435456` (256 MiB).
+
+## `zlib.setMaxZipContentSize(size)`
+
+<!-- YAML
+added: REPLACEME
+-->
+
+> Stability: 1 - Experimental
+
+* `size` {number}
+
+Sets the default ceiling used by [`zipEntry.content()`][] when no explicit
+`maxSize` option is given. This is a guard against zip bombs: an archive
+whose central directory declares a member larger than this is rejected
+before allocating memory for it. Streaming reads
+([`zipEntry.contentIterator()`][], [`zipFile.stream()`][]) are bounded-memory
+by design and are not affected by this setting.
 
 ## Convenience methods
 
@@ -2023,11 +3087,21 @@ Create a Zstandard decompression transform.
 [`Content-Encoding`]: https://www.w3.org/Protocols/rfc2616/rfc2616-sec14.html#sec14.11
 [`DeflateRaw`]: #class-zlibdeflateraw
 [`Deflate`]: #class-zlibdeflate
+[`ERR_INVALID_STATE`]: errors.md#err_invalid_state
+[`ERR_ZIP_ENTRY_CORRUPT`]: errors.md#err_zip_entry_corrupt
+[`ERR_ZIP_ENTRY_NOT_FOUND`]: errors.md#err_zip_entry_not_found
+[`ERR_ZIP_ENTRY_TOO_LARGE`]: errors.md#err_zip_entry_too_large
+[`ERR_ZIP_INVALID_ARCHIVE`]: errors.md#err_zip_invalid_archive
+[`ERR_ZIP_NOT_WRITABLE`]: errors.md#err_zip_not_writable
+[`ERR_ZIP_UNSUPPORTED_FEATURE`]: errors.md#err_zip_unsupported_feature
 [`Gunzip`]: #class-zlibgunzip
 [`Gzip`]: #class-zlibgzip
 [`InflateRaw`]: #class-zlibinflateraw
 [`Inflate`]: #class-zlibinflate
 [`Unzip`]: #class-zlibunzip
+[`ZipBuffer`]: #class-zlibzipbuffer
+[`ZipEntry`]: #class-zlibzipentry
+[`ZipFile`]: #class-zlibzipfile
 [`ZlibBase`]: #class-zlibzlibbase
 [`ZstdCompress`]: #class-zlibzstdcompress
 [`ZstdDecompress`]: #class-zlibzstddecompress
@@ -2037,6 +3111,33 @@ Create a Zstandard decompression transform.
 [`pipeTo()`]: stream_iter.md#pipetosource-transforms-writer-options
 [`pull()`]: stream_iter.md#pullsource-transforms-options
 [`stream.Transform`]: stream.md#class-streamtransform
+[`zipBuffer.add()`]: #zipbufferaddfilename-data-options
+[`zipBuffer.addSync()`]: #zipbufferaddsyncfilename-data-options
+[`zipBuffer.comment`]: #zipbuffercomment
+[`zipBuffer.toBuffer()`]: #zipbuffertobufferoptions
+[`zipBuffer.toBufferSync()`]: #zipbuffertobuffersyncoptions
+[`zipEntry.content()`]: #zipentrycontentoptions
+[`zipEntry.contentIterator()`]: #zipentrycontentiteratoroptions
+[`zipEntry.contentSync()`]: #zipentrycontentsyncoptions
+[`zipEntry.name`]: #zipentryname
+[`zipFile.add()`]: #zipfileaddfilename-data-options
+[`zipFile.addEntry()`]: #zipfileaddentryentry
+[`zipFile.close()`]: #zipfileclose
+[`zipFile.comment`]: #zipfilecomment
+[`zipFile.compact()`]: #zipfilecompactcomment
+[`zipFile.delete()`]: #zipfiledeletename
+[`zipFile.entries()`]: #zipfileentries
+[`zipFile.forEach()`]: #zipfileforeachcallback-thisarg
+[`zipFile.get()`]: #zipfilegetname
+[`zipFile.stream()`]: #zipfilestreamname-options
+[`zipFile.values()`]: #zipfilevalues
+[`zlib.ZipEntry.create()`]: #static-method-zlibzipentrycreatefilename-data-options
+[`zlib.ZipEntry.createStream()`]: #static-method-zlibzipentrycreatestreamfilename-source-options
+[`zlib.ZipEntry.createSync()`]: #static-method-zlibzipentrycreatesyncfilename-data-options
+[`zlib.ZipFile.open()`]: #static-method-zlibzipfileopenfilename-options
+[`zlib.createZipArchive()`]: #zlibcreateziparchiveentries-options
+[`zlib.createZipArchiveSync()`]: #zlibcreateziparchivesyncentries-options
+[`zlib.getMaxZipContentSize()`]: #zlibgetmaxzipcontentsize
 [convenience methods]: #convenience-methods
 [zlib documentation]: https://zlib.net/manual.html#Constants
 [zlib.createGzip example]: #zlib
