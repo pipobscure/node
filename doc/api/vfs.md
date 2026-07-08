@@ -34,9 +34,11 @@ It does not isolate untrusted code from the host file system or from other
 Node.js capabilities. Code that can access a [`VirtualFileSystem`][] instance,
 mount it, select its provider, or pass paths to it is trusted application code.
 
-Mounting a VFS only redirects supported [`node:fs`][] calls whose resolved paths
-are under the mount point. It does not prevent code from using other paths or
-other Node.js APIs to access resources available to the process.
+Mounting a VFS only redirects supported [`node:fs`][] calls (and, since the
+CJS/ESM module loader ultimately resolves and reads files the same way,
+`require()`/`import` resolution) whose resolved paths are under the mount
+point. It does not prevent code from using other paths or other Node.js APIs
+to access resources available to the process.
 [`RealFSProvider`][] maps VFS paths under its configured root and rejects paths
 that resolve outside that root, but that check is not a security boundary.
 [`ZipProvider`][] has no real file-system paths of its own to escape; its
@@ -167,6 +169,10 @@ signatures as their [`node:fs`][] counterparts:
   `fstatSync`
 * Streams: `createReadStream`, `createWriteStream`
 * Watchers: `watch`, `watchFile`, `unwatchFile`
+* `toProviderPath(path)`: converts an absolute mounted path to the
+  provider-relative POSIX path passed to [`VirtualProvider`][] methods -
+  useful for code that needs to reach `vfs.provider` directly, bypassing
+  this class's own `fs`-shaped methods.
 
 #### Callback API
 
