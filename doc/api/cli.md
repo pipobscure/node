@@ -3527,6 +3527,93 @@ added: v0.1.3
 
 Print node's version.
 
+### `--vfs-manifest=file`
+
+<!-- YAML
+added: REPLACEME
+-->
+
+* `file` {string} Where to write the manifest. Must be an explicit path -
+  there is no default derived from the [`--vfs`][] target, so a run can
+  never silently overwrite the wrong file.
+
+Used together with a directory [`--vfs`][] target. The path of every file
+actually read through the mount during this run - by module resolution or
+by the program's own [`node:fs`][] calls - is appended, one per line, to
+`file` as soon as it's read.
+
+```bash
+node --vfs=./my-app --vfs-manifest=./my-app.manifest main.js
+# -> ./my-app.manifest lists every file this run actually touched
+```
+
+This lets you exercise an app once against its real source directory and
+come away with exactly the list of files it needed, without hand-picking
+what to bundle - useful as an input to building an archive of just those
+files, for example to run later via `--vfs=apparchive.zip`. Throws
+[`ERR_VFS_MANIFEST_REQUIRES_DIRECTORY`][] if [`--vfs`][]'s target is a file
+rather than a directory.
+
+Entries are appended immediately as each file is read, not buffered and
+flushed at the end, so the manifest reflects everything read up to
+whatever point the process reaches - including a process that's killed
+rather than exiting normally. Duplicate reads of the same file are only
+recorded once per thread; a [`Worker`][] appends to the very same manifest
+file directly, since it shares the real file system with the main thread.
+
+### `--vfs=target`
+
+<!-- YAML
+added: REPLACEME
+-->
+
+* `target` {string} A directory or a ZIP archive to mount.
+
+Mounts `target` as a virtual file system ([`node:vfs`][]) and resolves the
+entry point (`process.argv[1]`) and all subsequent `require()`/`import`
+resolution against it, instead of against the real file system.
+
+* If `target` is a directory, it's mounted with a [`RealFSProvider`][] rooted
+  there. The files are already real, so mounting doesn't change what bytes
+  are read - it adds path containment, rejecting resolution that would
+  escape above `target` via `..`.
+* If `target` is a file, it's opened as a ZIP archive ([`zlib.ZipFile`][],
+  read-only) and mounted with a [`ZipProvider`][], turning `target`
+  itself into a virtual directory for module-resolution purposes (e.g.
+  `--vfs=/path/to/app.zip` resolves `/path/to/app.zip/index.js` inside the
+  archive).
+
+`process.argv[1]` becomes the mount root itself, as if `node <target>` had
+been run: the mount's own `package.json` `"main"` (or `index.js`) selects the
+entry point, and any positional command-line argument is the program's own
+(available from `process.argv[2]` onward), never an entry-point override. So a
+ZIP archive can be made directly executable by prepending a shebang line and
+marking it executable:
+
+```console
+$ (printf '#!/usr/bin/env -S node --vfs\n'; cat app.zip) > app && chmod +x app
+$ ./app arg1 arg2   # runs the archive's index.js with ['arg1', 'arg2']
+```
+
+Module resolution under `--vfs` is fully sandboxed: `package.json` lookups,
+`node_modules`-style resolution, and legacy `main` resolution never fall back
+to the real file system once they would step outside the mounted target - a
+dependency has to be inside the mounted directory or archive to be found.
+
+This only affects module _resolution_. The running program's own [`node:fs`][]
+calls to paths outside the mounted target work normally against the real file
+system; only paths under `target` are redirected, the same as any other
+[`node:vfs`][] mount.
+
+Native addons (`.node` files) are supported: from a directory-backed mount
+they're loaded directly from their real underlying path; from an
+archive-backed mount, the addon's bytes are extracted to a content-hashed
+file under the OS temporary directory before being loaded, and that file is
+best-effort removed when the process exits.
+
+A [`Worker`][] created from a process started with `--vfs` inherits the same
+mount unless its own `execArgv` explicitly overrides it.
+
 ### `--watch`
 
 <!-- YAML
@@ -3946,6 +4033,8 @@ one is included in the list below.
 * `--use-openssl-ca`
 * `--use-system-ca`
 * `--v8-pool-size`
+* `--vfs`
+* `--vfs-manifest`
 * `--watch-kill-signal`
 * `--watch-path`
 * `--watch-preserve-output`
@@ -4454,16 +4543,21 @@ node --stack-trace-limit=12 -p -e "Error.stackTraceLimit" # prints 12
 [`--require`]: #-r---require-module
 [`--use-env-proxy`]: #--use-env-proxy
 [`--use-system-ca`]: #--use-system-ca
+[`--vfs`]: #--vfstarget
 [`AsyncLocalStorage`]: async_context.md#class-asynclocalstorage
 [`Buffer`]: buffer.md#class-buffer
 [`CRYPTO_secure_malloc_init`]: https://www.openssl.org/docs/man3.0/man3/CRYPTO_secure_malloc_init.html
 [`ERR_INVALID_TYPESCRIPT_SYNTAX`]: errors.md#err_invalid_typescript_syntax
 [`ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX`]: errors.md#err_unsupported_typescript_syntax
+[`ERR_VFS_MANIFEST_REQUIRES_DIRECTORY`]: errors.md#err_vfs_manifest_requires_directory
 [`NODE_OPTIONS`]: #node_optionsoptions
 [`NODE_USE_ENV_PROXY=1`]: #node_use_env_proxy1
 [`NO_COLOR`]: https://no-color.org
+[`RealFSProvider`]: vfs.md#class-realfsprovider
 [`Web Storage`]: https://developer.mozilla.org/en-US/docs/Web/API/Web_Storage_API
+[`Worker`]: worker_threads.md#class-worker
 [`YoungGenerationSizeFromSemiSpaceSize`]: https://chromium.googlesource.com/v8/v8.git/+/refs/tags/10.3.129/src/heap/heap.cc#328
+[`ZipProvider`]: vfs.md#class-zipprovider
 [`dns.lookup()`]: dns.md#dnslookuphostname-options-callback
 [`dns.setDefaultResultOrder()`]: dns.md#dnssetdefaultresultorderorder
 [`dnsPromises.lookup()`]: dns.md#dnspromiseslookuphostname-options
@@ -4471,6 +4565,7 @@ node --stack-trace-limit=12 -p -e "Error.stackTraceLimit" # prints 12
 [`import` specifier]: esm.md#import-specifiers
 [`net.getDefaultAutoSelectFamilyAttemptTimeout()`]: net.md#netgetdefaultautoselectfamilyattempttimeout
 [`node:ffi`]: ffi.md
+[`node:fs`]: fs.md
 [`node:sqlite`]: sqlite.md
 [`node:stream/iter`]: stream_iter.md
 [`node:vfs`]: vfs.md
@@ -4481,6 +4576,7 @@ node --stack-trace-limit=12 -p -e "Error.stackTraceLimit" # prints 12
 [`v8.startupSnapshot.addDeserializeCallback()`]: v8.md#v8startupsnapshotadddeserializecallbackcallback-data
 [`v8.startupSnapshot.setDeserializeMainFunction()`]: v8.md#v8startupsnapshotsetdeserializemainfunctioncallback-data
 [`v8.startupSnapshot` API]: v8.md#startup-snapshot-api
+[`zlib.ZipFile`]: zlib.md#class-zlibzipfile
 [asynchronous module customization hooks]: module.md#asynchronous-customization-hooks
 [captured by the built-in snapshot of Node.js]: https://github.com/nodejs/node/blob/b19525a33cc84033af4addd0f80acd4dc33ce0cf/test/parallel/test-bootstrap-modules.js#L24
 [collecting code coverage from tests]: test.md#collecting-code-coverage

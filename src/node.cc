@@ -389,7 +389,12 @@ MaybeLocal<Value> StartExecution(Environment* env,
     return StartExecution(env, "internal/main/watch_mode");
   }
 
-  if (!first_argv.empty() && first_argv != "-") {
+  // An active --vfs mount is itself an entry point: with no positional
+  // argument, argv[1] defaults to the mount root and its package.json
+  // "main"/index.js decides what runs (see patchProcessObject()), so route
+  // to run_main_module rather than falling through to the REPL/stdin.
+  if ((!first_argv.empty() && first_argv != "-") ||
+      !env->options()->vfs.empty()) {
     return StartExecution(env, "internal/main/run_main_module");
   }
 

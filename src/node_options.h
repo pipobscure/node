@@ -133,6 +133,8 @@ class EnvironmentOptions : public Options {
   bool experimental_sqlite = HAVE_SQLITE;
   bool experimental_stream_iter = EXPERIMENTALS_DEFAULT_VALUE;
   bool experimental_vfs = EXPERIMENTALS_DEFAULT_VALUE;
+  std::string vfs;
+  std::string vfs_manifest;
   bool webstorage = HAVE_SQLITE;
   bool experimental_dtls = EXPERIMENTALS_DEFAULT_VALUE;
   bool experimental_quic = EXPERIMENTALS_DEFAULT_VALUE;

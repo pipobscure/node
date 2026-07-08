@@ -3490,6 +3490,21 @@ An attempt was made to use something that was already closed.
 While using the Performance Timing API (`perf_hooks`), no valid performance
 entry types are found.
 
+<a id="ERR_VFS_INVALID_TARGET"></a>
+
+### `ERR_VFS_INVALID_TARGET`
+
+The target passed to [`--vfs`][] does not exist, or is neither a regular file
+nor a directory.
+
+<a id="ERR_VFS_MANIFEST_REQUIRES_DIRECTORY"></a>
+
+### `ERR_VFS_MANIFEST_REQUIRES_DIRECTORY`
+
+[`--vfs-manifest`][] was used, but [`--vfs`][]'s target is not a directory.
+Recording reads into a manifest only makes sense when running against a real
+directory.
+
 <a id="ERR_VM_DYNAMIC_IMPORT_CALLBACK_MISSING"></a>
 
 ### `ERR_VM_DYNAMIC_IMPORT_CALLBACK_MISSING`
@@ -4644,6 +4659,8 @@ An error occurred trying to allocate memory. This should never happen.
 [`--force-fips`]: cli.md#--force-fips
 [`--no-addons`]: cli.md#--no-addons
 [`--unhandled-rejections`]: cli.md#--unhandled-rejectionsmode
+[`--vfs-manifest`]: cli.md#--vfs-manifest
+[`--vfs`]: cli.md#--vfstarget
 [`BoundSocket`]: net.md#class-netboundsocket
 [`Class: assert.AssertionError`]: assert.md#class-assertassertionerror
 [`ERR_INCOMPATIBLE_OPTION_PAIR`]: #err_incompatible_option_pair

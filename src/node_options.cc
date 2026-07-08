@@ -623,6 +623,18 @@ EnvironmentOptionsParser::EnvironmentOptionsParser() {
             "experimental node:vfs module",
             &EnvironmentOptions::experimental_vfs,
             kAllowedInEnvvar);
+  AddOption("--vfs",
+            "run the entry point and all module resolution against a "
+            "virtual file system mounted from the given directory or ZIP "
+            "archive",
+            &EnvironmentOptions::vfs,
+            kAllowedInEnvvar);
+  AddOption("--vfs-manifest",
+            "used with a directory --vfs target: append the path of every "
+            "file actually read through the mount during this run to the "
+            "given file, one per line",
+            &EnvironmentOptions::vfs_manifest,
+            kAllowedInEnvvar);
   AddOption("--experimental-quic",
 #ifndef OPENSSL_NO_QUIC
             "experimental QUIC support",
