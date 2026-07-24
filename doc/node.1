@@ -812,7 +812,9 @@ filter value to run. See Test tags for details on declaring and
 inheriting tags.
 .
 .It Fl -experimental-vfs
-Enable the experimental \fBnode:vfs\fR module.
+Enable the experimental \fBnode:vfs\fR module. This flag also gates the
+\fB--vfs\fR and \fB--vfs-manifest\fR startup flags, which are only allowed
+when \fB--experimental-vfs\fR is set.
 .
 .It Fl -experimental-vm-modules
 Enable experimental ES Module support in the \fBnode:vm\fR module.
@@ -1757,6 +1759,82 @@ amount of CPUs, but it may diverge in environments such as VMs or containers.
 .It Fl v , Fl -version
 Print node's version.
 .
+.It Fl -vfs-manifest Ns = Ns Ar file
+.Bl -bullet
+.It
+\fBfile\fR \fB<string>\fR Where to write the manifest. Must be an explicit path -
+there is no default derived from the \fB--vfs\fR target, so a run can
+never silently overwrite the wrong file.
+.El
+Requires \fB--experimental-vfs\fR. Used together with a directory \fB--vfs\fR
+target. The path of every file actually read through the mount during this
+run - by module resolution or by the program's own \fBnode:fs\fR calls - is
+appended, one per line, to \fBfile\fR as soon as it's read.
+.Bd -literal
+node --vfs=./my-app --vfs-manifest=./my-app.manifest main.js
+# -> ./my-app.manifest lists every file this run actually touched
+.Ed
+This lets you exercise an app once against its real source directory and
+come away with exactly the list of files it needed, without hand-picking
+what to bundle - useful as an input to building an archive of just those
+files, for example to run later via \fB--vfs=apparchive.zip\fR. Throws
+\fBERR_VFS_MANIFEST_REQUIRES_DIRECTORY\fR if \fB--vfs\fR's target is a file
+rather than a directory.
+Entries are appended immediately as each file is read, not buffered and
+flushed at the end, so the manifest reflects everything read up to
+whatever point the process reaches - including a process that's killed
+rather than exiting normally. Duplicate reads of the same file are only
+recorded once per thread; a \fBWorker\fR appends to the very same manifest
+file directly, since it shares the real file system with the main thread.
+.
+.It Fl -vfs Ns = Ns Ar target
+.Bl -bullet
+.It
+\fBtarget\fR \fB<string>\fR A directory or a ZIP archive to mount.
+.El
+Requires \fB--experimental-vfs\fR.
+Mounts \fBtarget\fR as a virtual file system (\fBnode:vfs\fR) and resolves the
+entry point (\fBprocess.argv[1]\fR) and all subsequent \fBrequire()\fR/\fBimport\fR
+resolution against it, instead of against the real file system.
+.Bl -bullet
+.It
+If \fBtarget\fR is a directory, it's mounted with a \fBRealFSProvider\fR rooted
+there. The files are already real, so mounting doesn't change what bytes
+are read - it adds path containment, rejecting resolution that would
+escape above \fBtarget\fR via \fB..\fR.
+.It
+If \fBtarget\fR is a file, it's opened as a ZIP archive (\fBzlib.ZipFile\fR,
+read-only) and mounted with a \fBZipProvider\fR, turning \fBtarget\fR
+itself into a virtual directory for module-resolution purposes (e.g.
+\fB--vfs=/path/to/app.zip\fR resolves \fB/path/to/app.zip/index.js\fR inside the
+archive).
+.El
+\fBprocess.argv[1]\fR becomes the mount root itself, as if \fBnode <target>\fR had
+been run: the mount's own \fBpackage.json\fR \fB"main"\fR (or \fBindex.js\fR) selects the
+entry point, and any positional command-line argument is the program's own
+(available from \fBprocess.argv[2]\fR onward), never an entry-point override. So a
+ZIP archive can be made directly executable by prepending a shebang line and
+marking it executable:
+.Bd -literal
+$ (printf '#!/usr/bin/env -S node --vfs\\n'; cat app.zip) > app && chmod +x app
+$ ./app arg1 arg2   # runs the archive's index.js with ['arg1', 'arg2']
+.Ed
+Module resolution under \fB--vfs\fR is fully sandboxed: \fBpackage.json\fR lookups,
+\fBnode_modules\fR-style resolution, and legacy \fBmain\fR resolution never fall back
+to the real file system once they would step outside the mounted target - a
+dependency has to be inside the mounted directory or archive to be found.
+This only affects module \fIresolution\fR. The running program's own \fBnode:fs\fR
+calls to paths outside the mounted target work normally against the real file
+system; only paths under \fBtarget\fR are redirected, the same as any other
+\fBnode:vfs\fR mount.
+Native addons (\fB.node\fR files) are supported: from a directory-backed mount
+they're loaded directly from their real underlying path; from an
+archive-backed mount, the addon's bytes are extracted to a content-hashed
+file under the OS temporary directory before being loaded, and that file is
+best-effort removed when the process exits.
+A \fBWorker\fR created from a process started with \fB--vfs\fR inherits the same
+mount unless its own \fBexecArgv\fR explicitly overrides it.
+.
 .It Fl -watch
 Starts Node.js in watch mode.
 When in watch mode, changes in the watched files cause the Node.js process to
@@ -2214,6 +2292,10 @@ one is included in the list below.
 \fB--use-system-ca\fR
 .It
 \fB--v8-pool-size\fR
+.It
+\fB--vfs\fR
+.It
+\fB--vfs-manifest\fR
 .It
 \fB--watch-kill-signal\fR
 .It
