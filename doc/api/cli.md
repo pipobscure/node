@@ -1496,7 +1496,9 @@ added: v26.4.0
 
 > Stability: 1 - Experimental
 
-Enable the experimental [`node:vfs`][] module.
+Enable the experimental [`node:vfs`][] module. This flag also gates the
+[`--vfs-mount`][] startup flag, which is only allowed when `--experimental-vfs`
+is set.
 
 ### `--experimental-vm-modules`
 
@@ -3562,6 +3564,44 @@ added: v0.1.3
 
 Print node's version.
 
+### `--vfs-mount=source[=target]`
+
+<!-- YAML
+added: REPLACEME
+-->
+
+* `source` {string} A directory or an archive file to mount.
+* `target` {string} Where to mount it. **Default:** `source`'s own resolved
+  path.
+
+Requires [`--experimental-vfs`][]. May be repeated to mount several sources.
+
+Mounts `source` as a virtual file system ([`node:vfs`][]) at `target` (or at
+`source`'s own path when no `target` is given). The running program's own
+[`node:fs`][] calls to paths under `target` then resolve against the mount,
+while every other path uses the real file system unchanged.
+
+* If `source` is a directory, it's mounted with a [`RealFSProvider`][] rooted
+  there. The files are already real, so mounting doesn't change what bytes are
+  read - it adds path containment, rejecting resolution that would escape the
+  root via `..`.
+* If `source` is a file, a provider is chosen for it by **content**, not by
+  file extension, so an archive can carry any name. Providers registered with
+  [`vfs.registerProvider()`][] (typically from a module preloaded with
+  [`--require`][]) are tried first, in reverse registration order and for
+  directories as well as files; if none claims the source, the built-in
+  providers handle it - a directory with [`RealFSProvider`][], and a file whose
+  bytes are a ZIP archive with the read-only [`ZipProvider`][]
+  ([`zlib.ZipFile`][]; a `.zip` name is accepted without reading, as a fast
+  path). A source no provider claims fails with `ERR_VFS_INVALID_TARGET`.
+
+This affects only paths under a mount, the same as any other [`node:vfs`][]
+mount.
+
+A [`Worker`][] created from a process started with `--vfs-mount` inherits the
+same mounts unless its own `execArgv` explicitly supplies its own
+`--vfs-mount`.
+
 ### `--watch`
 
 <!-- YAML
@@ -3981,6 +4021,7 @@ one is included in the list below.
 * `--use-openssl-ca`
 * `--use-system-ca`
 * `--v8-pool-size`
+* `--vfs-mount`
 * `--watch-kill-signal`
 * `--watch-path`
 * `--watch-preserve-output`
@@ -4484,6 +4525,7 @@ node --stack-trace-limit=12 -p -e "Error.stackTraceLimit" # prints 12
 [`--env-file-if-exists`]: #--env-file-if-existsfile
 [`--env-file`]: #--env-filefile
 [`--experimental-sea-config`]: single-executable-applications.md#1-generating-single-executable-preparation-blobs
+[`--experimental-vfs`]: #--experimental-vfs
 [`--heap-prof-dir`]: #--heap-prof-dir
 [`--import`]: #--importmodule
 [`--no-require-module`]: #--no-require-module
@@ -4495,6 +4537,7 @@ node --stack-trace-limit=12 -p -e "Error.stackTraceLimit" # prints 12
 [`--require`]: #-r---require-module
 [`--use-env-proxy`]: #--use-env-proxy
 [`--use-system-ca`]: #--use-system-ca
+[`--vfs-mount`]: #--vfs-mountsourcetarget
 [`AsyncLocalStorage`]: async_context.md#class-asynclocalstorage
 [`Buffer`]: buffer.md#class-buffer
 [`CRYPTO_secure_malloc_init`]: https://www.openssl.org/docs/man3.0/man3/CRYPTO_secure_malloc_init.html
@@ -4503,8 +4546,11 @@ node --stack-trace-limit=12 -p -e "Error.stackTraceLimit" # prints 12
 [`NODE_OPTIONS`]: #node_optionsoptions
 [`NODE_USE_ENV_PROXY=1`]: #node_use_env_proxy1
 [`NO_COLOR`]: https://no-color.org
+[`RealFSProvider`]: vfs.md#class-realfsprovider
 [`Web Storage`]: https://developer.mozilla.org/en-US/docs/Web/API/Web_Storage_API
+[`Worker`]: worker_threads.md#class-worker
 [`YoungGenerationSizeFromSemiSpaceSize`]: https://chromium.googlesource.com/v8/v8.git/+/refs/tags/10.3.129/src/heap/heap.cc#328
+[`ZipProvider`]: vfs.md#class-zipprovider
 [`dns.lookup()`]: dns.md#dnslookuphostname-options-callback
 [`dns.setDefaultResultOrder()`]: dns.md#dnssetdefaultresultorderorder
 [`dnsPromises.lookup()`]: dns.md#dnspromiseslookuphostname-options
@@ -4512,6 +4558,7 @@ node --stack-trace-limit=12 -p -e "Error.stackTraceLimit" # prints 12
 [`import` specifier]: esm.md#import-specifiers
 [`net.getDefaultAutoSelectFamilyAttemptTimeout()`]: net.md#netgetdefaultautoselectfamilyattempttimeout
 [`node:ffi`]: ffi.md
+[`node:fs`]: fs.md
 [`node:sqlite`]: sqlite.md
 [`node:stream/iter`]: stream_iter.md
 [`node:vfs`]: vfs.md
@@ -4522,6 +4569,8 @@ node --stack-trace-limit=12 -p -e "Error.stackTraceLimit" # prints 12
 [`v8.startupSnapshot.addDeserializeCallback()`]: v8.md#v8startupsnapshotadddeserializecallbackcallback-data
 [`v8.startupSnapshot.setDeserializeMainFunction()`]: v8.md#v8startupsnapshotsetdeserializemainfunctioncallback-data
 [`v8.startupSnapshot` API]: v8.md#startup-snapshot-api
+[`vfs.registerProvider()`]: vfs.md#vfsregisterproviderentry
+[`zlib.ZipFile`]: zlib.md#class-zlibzipfile
 [asynchronous module customization hooks]: module.md#asynchronous-customization-hooks
 [captured by the built-in snapshot of Node.js]: https://github.com/nodejs/node/blob/b19525a33cc84033af4addd0f80acd4dc33ce0cf/test/parallel/test-bootstrap-modules.js#L24
 [collecting code coverage from tests]: test.md#collecting-code-coverage

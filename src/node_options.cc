@@ -215,6 +215,10 @@ void EnvironmentOptions::CheckOptions(std::vector<std::string>* errors,
   }
 #endif  // HAVE_OPENSSL
 
+  if (!experimental_vfs && !vfs_mounts.empty()) {
+    errors->push_back("--vfs-mount requires --experimental-vfs");
+  }
+
   if (heap_snapshot_near_heap_limit < 0) {
     errors->push_back("--heapsnapshot-near-heap-limit must not be negative");
   }
@@ -622,6 +626,12 @@ EnvironmentOptionsParser::EnvironmentOptionsParser() {
   AddOption("--experimental-vfs",
             "experimental node:vfs module",
             &EnvironmentOptions::experimental_vfs,
+            kAllowedInEnvvar);
+  AddOption("--vfs-mount",
+            "mount a directory or archive as a virtual file system at "
+            "<source>, or at <target> when given as <source>=<target> "
+            "(option can be repeated; requires --experimental-vfs)",
+            &EnvironmentOptions::vfs_mounts,
             kAllowedInEnvvar);
   AddOption("--experimental-quic",
 #ifndef OPENSSL_NO_QUIC
