@@ -34,9 +34,11 @@ It does not isolate untrusted code from the host file system or from other
 Node.js capabilities. Code that can access a [`VirtualFileSystem`][] instance,
 mount it, select its provider, or pass paths to it is trusted application code.
 
-Mounting a VFS only redirects supported [`node:fs`][] calls whose resolved paths
-are under the mount point. It does not prevent code from using other paths or
-other Node.js APIs to access resources available to the process.
+Mounting a VFS only redirects supported [`node:fs`][] calls (and, since the
+CJS/ESM module loader ultimately resolves and reads files the same way,
+`require()`/`import` resolution) whose resolved paths are under the mount
+point. It does not prevent code from using other paths or other Node.js APIs
+to access resources available to the process.
 [`RealFSProvider`][] maps VFS paths under its configured root and rejects paths
 that resolve outside that root, but that check is not a security boundary.
 [`ZipProvider`][] has no real file-system paths of its own to escape; its
@@ -110,11 +112,12 @@ Registers a provider that the [`--vfs-mount`][] startup flag can select for a
 mount source it recognizes. This is the extension point for supporting archive
 formats beyond the built-in ZIP, or for wrapping the built-in directory and
 ZIP providers: a module that implements, say, a 7-Zip provider registers it
-here — typically from a module preloaded with [`--require`][], so it is in
-place before `--vfs-mount` selects a provider:
+here — typically from a module preloaded with [`--require`][] or [`--import`][],
+so it is in place before `--vfs-mount` selects a provider (selection is
+deferred until after both kinds of preload have run):
 
 ```console
-$ node --experimental-vfs -r @me/my-7z-provider --vfs-mount app.7z app.js
+$ node --experimental-vfs -r @me/my-7z-provider --vfs-load --vfs-mount app.7z
 ```
 
 ```cjs
@@ -146,8 +149,8 @@ Selection rules for a `--vfs-mount` source:
   most recently registered wins), so a custom provider always takes precedence
   over the built-ins — even for a source they would otherwise handle. This lets
   a provider back, wrap, or vet any mount, including a directory (for example,
-  a provider that wraps [`RealFSProvider`][], or one that verifies a signature
-  before allowing use).
+  a provider that wraps [`RealFSProvider`][] to record every read, or one that
+  verifies a signature before allowing use).
 * If no registered provider claims the source, the built-ins handle it: a
   directory with [`RealFSProvider`][], and a file whose bytes are a ZIP archive
   with the built-in ZIP provider. A `.zip` name is accepted without reading the
@@ -240,6 +243,10 @@ signatures as their [`node:fs`][] counterparts:
   `fstatSync`
 * Streams: `createReadStream`, `createWriteStream`
 * Watchers: `watch`, `watchFile`, `unwatchFile`
+* `toProviderPath(path)`: converts an absolute mounted path to the
+  provider-relative POSIX path passed to [`VirtualProvider`][] methods -
+  useful for code that needs to reach `vfs.provider` directly, bypassing
+  this class's own `fs`-shaped methods.
 
 #### Callback API
 
@@ -439,6 +446,7 @@ fields use synthetic but stable values:
 * `blocks` is `Math.ceil(size / 512)`.
 * Times default to the moment the entry was created/last modified.
 
+[`--import`]: cli.md#--importmodule
 [`--require`]: cli.md#-r---require-module
 [`--vfs-mount`]: cli.md#--vfs-mountsourcetarget
 [`MemoryProvider`]: #class-memoryprovider
