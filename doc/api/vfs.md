@@ -88,6 +88,78 @@ const memoryVfs = vfs.create();
 const realVfs = vfs.create(new vfs.RealFSProvider('/tmp/vfs-root'));
 ```
 
+## `vfs.registerProvider(entry)`
+
+<!-- YAML
+added: REPLACEME
+-->
+
+* `entry` {Object}
+  * `name` {string} A short identifier for the provider, used in diagnostics.
+  * `canHandle` {Function} `(resolvedPath, stats) => boolean`. Returns `true`
+    if this provider should back `resolvedPath`. `stats` is the
+    `fs.statSync()` result, so a provider can claim directories, files, or
+    both. Prefer inspecting the stats and (for archives) the contents - for
+    example, sniffing a magic-number signature - over trusting the file
+    extension, so an archive can carry any name.
+  * `create` {Function} `(resolvedPath, stats) => VirtualProvider`. Returns the
+    provider that backs `resolvedPath`. Only ever called after `canHandle`
+    returned `true` for the same path.
+
+Registers a provider that the [`--vfs-mount`][] startup flag can select for a
+mount source it recognizes. This is the extension point for supporting archive
+formats beyond the built-in ZIP, or for wrapping the built-in directory and
+ZIP providers: a module that implements, say, a 7-Zip provider registers it
+here — typically from a module preloaded with [`--require`][], so it is in
+place before `--vfs-mount` selects a provider:
+
+```console
+$ node --experimental-vfs -r @me/my-7z-provider --vfs-mount app.7z app.js
+```
+
+```cjs
+// @me/my-7z-provider (the preloaded module)
+const vfs = require('node:vfs');
+const { SevenZipProvider } = require('./provider');
+
+vfs.registerProvider({
+  name: '7z',
+  // Recognize by the 7-Zip signature, not the file name.
+  canHandle(resolvedPath, stats) {
+    if (!stats.isFile()) return false;
+    const fd = require('fs').openSync(resolvedPath, 'r');
+    try {
+      const magic = Buffer.alloc(6);
+      require('fs').readSync(fd, magic, 0, 6, 0);
+      return magic.equals(Buffer.from([0x37, 0x7A, 0xBC, 0xAF, 0x27, 0x1C]));
+    } finally {
+      require('fs').closeSync(fd);
+    }
+  },
+  create(resolvedPath) { return new SevenZipProvider(resolvedPath); },
+});
+```
+
+Selection rules for a `--vfs-mount` source:
+
+* Registered providers are consulted first, in reverse registration order (the
+  most recently registered wins), so a custom provider always takes precedence
+  over the built-ins — even for a source they would otherwise handle. This lets
+  a provider back, wrap, or vet any mount, including a directory (for example,
+  a provider that wraps [`RealFSProvider`][], or one that verifies a signature
+  before allowing use).
+* If no registered provider claims the source, the built-ins handle it: a
+  directory with [`RealFSProvider`][], and a file whose bytes are a ZIP archive
+  with the built-in ZIP provider. A `.zip` name is accepted without reading the
+  file, as a fast path; any other name is recognized by locating the archive's
+  end-of-central-directory record.
+* If no provider claims the source, `--vfs-mount` fails with
+  `ERR_VFS_INVALID_TARGET`.
+
+Registration is process-wide and affects only how the [`--vfs-mount`][] flag
+chooses a provider; it does not change how [`vfs.create()`][] or
+`new ZipProvider()` behave when a provider is passed explicitly.
+
 ## Class: `VirtualFileSystem`
 
 <!-- YAML
@@ -367,6 +439,8 @@ fields use synthetic but stable values:
 * `blocks` is `Math.ceil(size / 512)`.
 * Times default to the moment the entry was created/last modified.
 
+[`--require`]: cli.md#-r---require-module
+[`--vfs-mount`]: cli.md#--vfs-mountsourcetarget
 [`MemoryProvider`]: #class-memoryprovider
 [`RealFSProvider`]: #class-realfsprovider
 [`VirtualFileSystem`]: #class-virtualfilesystem
@@ -375,6 +449,7 @@ fields use synthetic but stable values:
 [`fs.BigIntStats`]: fs.md#class-fsbigintstats
 [`fs.Stats`]: fs.md#class-fsstats
 [`node:fs`]: fs.md
+[`vfs.create()`]: #vfscreateprovider-options
 [`zipFile.writable`]: zlib.md#zipfilewritable
 [`zlib.ZipBuffer`]: zlib.md#class-zlibzipbuffer
 [`zlib.ZipFile`]: zlib.md#class-zlibzipfile

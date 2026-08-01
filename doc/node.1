@@ -812,7 +812,9 @@ filter value to run. See Test tags for details on declaring and
 inheriting tags.
 .
 .It Fl -experimental-vfs
-Enable the experimental \fBnode:vfs\fR module.
+Enable the experimental \fBnode:vfs\fR module. This flag also gates the
+\fB--vfs-mount\fR startup flag, which is only allowed when
+\fB--experimental-vfs\fR is set.
 .
 .It Fl -experimental-vm-modules
 Enable experimental ES Module support in the \fBnode:vm\fR module.
@@ -1775,6 +1777,34 @@ amount of CPUs, but it may diverge in environments such as VMs or containers.
 .It Fl v , Fl -version
 Print node's version.
 .
+.It Fl -vfs-mount Ns = Ns Ar source Ns Oo = Ns Ar target Oc
+.Bl -bullet
+.It
+\fBsource\fR \fB<string>\fR A directory or an archive file to mount.
+.It
+\fBtarget\fR \fB<string>\fR Where to mount it. Default: \fBsource\fR's own
+resolved path.
+.El
+Requires \fB--experimental-vfs\fR. May be repeated to mount several sources.
+Mounts \fBsource\fR as a virtual file system (\fBnode:vfs\fR) at \fBtarget\fR (or
+at \fBsource\fR's own path when no \fBtarget\fR is given). The running program's
+own \fBnode:fs\fR calls to paths under \fBtarget\fR then resolve against the
+mount, while every other path uses the real file system unchanged.
+.Bl -bullet
+.It
+If \fBsource\fR is a directory, it's mounted with a \fBRealFSProvider\fR rooted
+there, adding path containment.
+.It
+If \fBsource\fR is a file, a provider is chosen for it by content, not by file
+extension. Providers registered with \fBvfs.registerProvider()\fR (from a
+\fB--require\fR preload) are tried first, for directories as well as files;
+otherwise the built-in ZIP provider handles a file whose bytes are a ZIP
+archive. A source no provider claims fails with \fBERR_VFS_INVALID_TARGET\fR.
+.El
+A \fBWorker\fR created from a process started with \fB--vfs-mount\fR inherits the
+same mounts unless its own \fBexecArgv\fR explicitly supplies its own
+\fB--vfs-mount\fR.
+.
 .It Fl -watch
 Starts Node.js in watch mode.
 When in watch mode, changes in the watched files cause the Node.js process to
@@ -2234,6 +2264,8 @@ one is included in the list below.
 \fB--use-system-ca\fR
 .It
 \fB--v8-pool-size\fR
+.It
+\fB--vfs-mount\fR
 .It
 \fB--watch-kill-signal\fR
 .It
