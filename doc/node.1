@@ -813,8 +813,8 @@ inheriting tags.
 .
 .It Fl -experimental-vfs
 Enable the experimental \fBnode:vfs\fR module. This flag also gates the
-\fB--vfs-mount\fR startup flag, which is only allowed when
-\fB--experimental-vfs\fR is set.
+\fB--vfs-mount\fR and \fB--vfs-load\fR startup flags, which are only allowed
+when \fB--experimental-vfs\fR is set.
 .
 .It Fl -experimental-vm-modules
 Enable experimental ES Module support in the \fBnode:vm\fR module.
@@ -1777,6 +1777,26 @@ amount of CPUs, but it may diverge in environments such as VMs or containers.
 .It Fl v , Fl -version
 Print node's version.
 .
+.It Fl -vfs-load
+Requires \fB--experimental-vfs\fR and at least one \fB--vfs-mount\fR.
+Runs the entry point (\fBprocess.argv[1]\fR) and all subsequent
+\fBrequire()\fR/\fBimport\fR resolution against the last \fB--vfs-mount\fR rather
+than the real file system. \fBprocess.argv[1]\fR becomes that mount's root, as
+if \fBnode <mountPoint>\fR had been run: the mount's own \fBpackage.json\fR
+\fB"main"\fR (or \fBindex.js\fR) selects the entry point, and any positional
+command-line argument is the program's own (available from \fBprocess.argv[2]\fR
+onward), never an entry-point override.
+Module resolution under the loaded mount is fully sandboxed: \fBpackage.json\fR
+lookups, \fBnode_modules\fR-style resolution, and legacy \fBmain\fR resolution
+never fall back to the real file system once they would step outside the mount.
+Combined with a self-mounting shebang this makes an archive directly
+executable:
+.Bd -literal
+$ (printf '#!/usr/bin/env -S node --vfs-load --vfs-mount\\n'; cat app.zip) > app
+$ chmod +x app
+$ ./app arg1 arg2   # runs the archive's index.js with ['arg1', 'arg2']
+.Ed
+.
 .It Fl -vfs-mount Ns = Ns Ar source Ns Oo = Ns Ar target Oc
 .Bl -bullet
 .It
@@ -1787,9 +1807,11 @@ resolved path.
 .El
 Requires \fB--experimental-vfs\fR. May be repeated to mount several sources.
 Mounts \fBsource\fR as a virtual file system (\fBnode:vfs\fR) at \fBtarget\fR (or
-at \fBsource\fR's own path when no \fBtarget\fR is given). The running program's
-own \fBnode:fs\fR calls to paths under \fBtarget\fR then resolve against the
-mount, while every other path uses the real file system unchanged.
+at \fBsource\fR's own path when no \fBtarget\fR is given). Paths under
+\fBtarget\fR then resolve against the mount - both \fBrequire()\fR/\fBimport\fR
+and the running program's own \fBnode:fs\fR calls - while every other path uses
+the real file system unchanged. Mounting alone does not change the entry
+point; pass \fB--vfs-load\fR to also run from a mount.
 .Bl -bullet
 .It
 If \fBsource\fR is a directory, it's mounted with a \fBRealFSProvider\fR rooted
@@ -1797,10 +1819,15 @@ there, adding path containment.
 .It
 If \fBsource\fR is a file, a provider is chosen for it by content, not by file
 extension. Providers registered with \fBvfs.registerProvider()\fR (from a
-\fB--require\fR preload) are tried first, for directories as well as files;
-otherwise the built-in ZIP provider handles a file whose bytes are a ZIP
-archive. A source no provider claims fails with \fBERR_VFS_INVALID_TARGET\fR.
+\fB--require\fR or \fB--import\fR preload) are tried first, for directories as
+well as files; otherwise the built-in ZIP provider handles a file whose bytes
+are a ZIP archive. A source no provider claims fails with
+\fBERR_VFS_INVALID_TARGET\fR.
 .El
+Native addons (\fB.node\fR files) are supported: from a directory-backed mount
+they're loaded directly from their real underlying path; from an
+archive-backed mount, the addon's bytes are extracted to a content-hashed
+file under the OS temporary directory before being loaded.
 A \fBWorker\fR created from a process started with \fB--vfs-mount\fR inherits the
 same mounts unless its own \fBexecArgv\fR explicitly supplies its own
 \fB--vfs-mount\fR.
@@ -2264,6 +2291,8 @@ one is included in the list below.
 \fB--use-system-ca\fR
 .It
 \fB--v8-pool-size\fR
+.It
+\fB--vfs-load\fR
 .It
 \fB--vfs-mount\fR
 .It

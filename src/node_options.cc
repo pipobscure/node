@@ -215,8 +215,16 @@ void EnvironmentOptions::CheckOptions(std::vector<std::string>* errors,
   }
 #endif  // HAVE_OPENSSL
 
-  if (!experimental_vfs && !vfs_mounts.empty()) {
-    errors->push_back("--vfs-mount requires --experimental-vfs");
+  if (!experimental_vfs) {
+    if (!vfs_mounts.empty()) {
+      errors->push_back("--vfs-mount requires --experimental-vfs");
+    }
+    if (vfs_load) {
+      errors->push_back("--vfs-load requires --experimental-vfs");
+    }
+  }
+  if (vfs_load && vfs_mounts.empty()) {
+    errors->push_back("--vfs-load requires at least one --vfs-mount");
   }
 
   if (heap_snapshot_near_heap_limit < 0) {
@@ -632,6 +640,12 @@ EnvironmentOptionsParser::EnvironmentOptionsParser() {
             "<source>, or at <target> when given as <source>=<target> "
             "(option can be repeated; requires --experimental-vfs)",
             &EnvironmentOptions::vfs_mounts,
+            kAllowedInEnvvar);
+  AddOption("--vfs-load",
+            "run the entry point and all module resolution against the last "
+            "--vfs-mount instead of the real file system (requires "
+            "--experimental-vfs and at least one --vfs-mount)",
+            &EnvironmentOptions::vfs_load,
             kAllowedInEnvvar);
   AddOption("--experimental-quic",
 #ifndef OPENSSL_NO_QUIC

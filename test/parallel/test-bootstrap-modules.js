@@ -102,6 +102,12 @@ expected.beforePreExec = new Set([
   'NativeModule internal/modules/helpers',
   'NativeModule internal/modules/customization_hooks',
   'NativeModule internal/modules/package_json_reader',
+  // VFS-aware module-resolution primitives, used by every stat/package.json
+  // read, plus the tiny mount registry they consult. Both are lightweight and
+  // defer the internal/vfs machinery (setup, fd, providers) until a VFS is
+  // actually mounted, which never happens here.
+  'NativeModule internal/modules/vfs_resolution',
+  'NativeModule internal/vfs/registry',
   'Internal Binding module_wrap',
   'NativeModule internal/modules/cjs/loader',
   'NativeModule internal/modules/package_map',

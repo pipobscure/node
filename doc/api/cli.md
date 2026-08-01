@@ -1497,8 +1497,8 @@ added: v26.4.0
 > Stability: 1 - Experimental
 
 Enable the experimental [`node:vfs`][] module. This flag also gates the
-[`--vfs-mount`][] startup flag, which is only allowed when `--experimental-vfs`
-is set.
+[`--vfs-mount`][] and [`--vfs-load`][] startup flags, which are only allowed
+when `--experimental-vfs` is set.
 
 ### `--experimental-vm-modules`
 
@@ -3564,6 +3564,38 @@ added: v0.1.3
 
 Print node's version.
 
+### `--vfs-load`
+
+<!-- YAML
+added: REPLACEME
+-->
+
+Requires [`--experimental-vfs`][] and at least one [`--vfs-mount`][].
+
+Runs the entry point (`process.argv[1]`) and all subsequent
+`require()`/`import` resolution against the **last** [`--vfs-mount`][] rather
+than the real file system. `process.argv[1]` becomes that mount's root, as if
+`node <mountPoint>` had been run: the mount's own `package.json` `"main"` (or
+`index.js`) selects the entry point, and any positional command-line argument
+is the program's own (available from `process.argv[2]` onward), never an
+entry-point override.
+
+Module resolution under the loaded mount is fully sandboxed: `package.json`
+lookups, `node_modules`-style resolution, and legacy `main` resolution never
+fall back to the real file system once they would step outside the mount.
+
+Combined with a self-mounting shebang this makes an archive directly
+executable. The kernel appends the script's own path as the trailing argument,
+which the final `--vfs-mount` consumes as its source, so the archive mounts
+itself and runs (the ZIP is located by its trailing record, so the shebang
+prefix is ignored):
+
+```console
+$ (printf '#!/usr/bin/env -S node --vfs-load --vfs-mount\n'; cat app.zip) > app
+$ chmod +x app
+$ ./app arg1 arg2   # runs the archive's index.js with ['arg1', 'arg2']
+```
+
 ### `--vfs-mount=source[=target]`
 
 <!-- YAML
@@ -3577,9 +3609,11 @@ added: REPLACEME
 Requires [`--experimental-vfs`][]. May be repeated to mount several sources.
 
 Mounts `source` as a virtual file system ([`node:vfs`][]) at `target` (or at
-`source`'s own path when no `target` is given). The running program's own
-[`node:fs`][] calls to paths under `target` then resolve against the mount,
-while every other path uses the real file system unchanged.
+`source`'s own path when no `target` is given). Paths under `target` then
+resolve against the mount - both `require()`/`import` and the running
+program's own [`node:fs`][] calls - while every other path uses the real file
+system unchanged. Mounting alone does **not** change the entry point; pass
+[`--vfs-load`][] to also run from a mount.
 
 * If `source` is a directory, it's mounted with a [`RealFSProvider`][] rooted
   there. The files are already real, so mounting doesn't change what bytes are
@@ -3588,15 +3622,26 @@ while every other path uses the real file system unchanged.
 * If `source` is a file, a provider is chosen for it by **content**, not by
   file extension, so an archive can carry any name. Providers registered with
   [`vfs.registerProvider()`][] (typically from a module preloaded with
-  [`--require`][]) are tried first, in reverse registration order and for
-  directories as well as files; if none claims the source, the built-in
-  providers handle it - a directory with [`RealFSProvider`][], and a file whose
-  bytes are a ZIP archive with the read-only [`ZipProvider`][]
+  [`--require`][] or [`--import`][]) are tried first, in reverse registration
+  order and for directories as well as files; if none claims the source, the
+  built-in providers handle it - a directory with [`RealFSProvider`][], and a
+  file whose bytes are a ZIP archive with the read-only [`ZipProvider`][]
   ([`zlib.ZipFile`][]; a `.zip` name is accepted without reading, as a fast
   path). A source no provider claims fails with `ERR_VFS_INVALID_TARGET`.
 
-This affects only paths under a mount, the same as any other [`node:vfs`][]
-mount.
+Provider selection is deferred until after [`--require`][] and [`--import`][]
+preload modules have run, so a preloaded module can register a custom provider
+that backs the mount.
+
+This only affects the paths under a mount. The running program's own
+[`node:fs`][] calls to other paths work normally against the real file system,
+the same as any other [`node:vfs`][] mount.
+
+Native addons (`.node` files) are supported: from a directory-backed mount
+they're loaded directly from their real underlying path; from an
+archive-backed mount, the addon's bytes are extracted to a content-hashed file
+under the OS temporary directory before being loaded, and that file is
+best-effort removed when the process exits.
 
 A [`Worker`][] created from a process started with `--vfs-mount` inherits the
 same mounts unless its own `execArgv` explicitly supplies its own
@@ -4021,6 +4066,7 @@ one is included in the list below.
 * `--use-openssl-ca`
 * `--use-system-ca`
 * `--v8-pool-size`
+* `--vfs-load`
 * `--vfs-mount`
 * `--watch-kill-signal`
 * `--watch-path`
@@ -4537,6 +4583,7 @@ node --stack-trace-limit=12 -p -e "Error.stackTraceLimit" # prints 12
 [`--require`]: #-r---require-module
 [`--use-env-proxy`]: #--use-env-proxy
 [`--use-system-ca`]: #--use-system-ca
+[`--vfs-load`]: #--vfs-load
 [`--vfs-mount`]: #--vfs-mountsourcetarget
 [`AsyncLocalStorage`]: async_context.md#class-asynclocalstorage
 [`Buffer`]: buffer.md#class-buffer
