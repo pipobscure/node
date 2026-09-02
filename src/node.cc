@@ -1024,6 +1024,18 @@ static ExitCode InitializeNodeWithArgsInternal(
         errors->push_back("--vfs-load requires --experimental-vfs");
       }
     }
+    // --vfs-load shares vfs_mounts with --vfs-mount, so the options themselves
+    // cannot say how often it was given; count it in the node options the
+    // command line yielded. A second one would silently win over the first.
+    if (env_options->vfs_load && exec_argv != nullptr) {
+      size_t seen = 0;
+      for (const std::string& arg : *exec_argv) {
+        if (arg == "--vfs-load" || arg.starts_with("--vfs-load=")) seen++;
+      }
+      if (seen > 1) {
+        errors->push_back("--vfs-load may only be given once");
+      }
+    }
     if (!errors->empty()) return ExitCode::kInvalidCommandLineArgument;
   }
 

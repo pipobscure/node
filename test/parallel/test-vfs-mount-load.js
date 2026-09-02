@@ -211,6 +211,30 @@ require('worker_threads').parentPort.postMessage('hello from worker in mount');
   assert.notStrictEqual(first, second);
 }
 
+// --vfs-load may only be given once: it shares one list with --vfs-mount, so a
+// second one would otherwise quietly win over the first.
+{
+  const dirs = {};
+  for (const name of ['once-a', 'once-b']) {
+    dirs[name] = fixture(name);
+    fs.mkdirSync(dirs[name], { recursive: true });
+    fs.writeFileSync(path.join(dirs[name], 'index.js'),
+                     `console.log('ran:${name}');\n`);
+  }
+
+  const twice = run([`--vfs-load=${dirs['once-a']}`,
+                     `--vfs-load=${dirs['once-b']}`]);
+  assert.notStrictEqual(twice.status, 0);
+  assert.match(twice.stderr, /--vfs-load may only be given once/);
+
+  // Repeating --vfs-mount stays allowed; only the loading one is limited.
+  const many = run([`--vfs-mount=${dirs['once-a']}`,
+                    `--vfs-load=${dirs['once-b']}`,
+                    `--vfs-mount=${dirs['once-a']}`]);
+  assert.strictEqual(many.status, 0, many.stderr);
+  assert.match(many.stdout, /ran:once-b/);
+}
+
 // --vfs-load picks the entry point, so it is refused in NODE_OPTIONS: the
 // environment must not be able to redirect what a `node <args>` run executes.
 // Everything but the flag under test is passed on the command line, so a build
@@ -220,12 +244,25 @@ if (hasNodeOptions) {
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(path.join(dir, 'index.js'), 'console.log("ran");\n');
 
-  const res = spawnSync(
-    process.execPath, ['--experimental-vfs'],
-    { encoding: 'utf8',
-      env: { ...process.env, NODE_OPTIONS: envArg('--vfs-load', dir) } });
-  assert.notStrictEqual(res.status, 0);
-  assert.match(res.stderr, /is not allowed in NODE_OPTIONS/);
+  // On its own, and alongside a --vfs-load the command line legitimately gave:
+  // the environment is refused either way rather than merged.
+  for (const args of [['--experimental-vfs'],
+                      ['--experimental-vfs', `--vfs-load=${dir}`]]) {
+    const res = spawnSync(process.execPath, args, {
+      encoding: 'utf8',
+      env: { ...process.env, NODE_OPTIONS: envArg('--vfs-load', dir) },
+    });
+    assert.notStrictEqual(res.status, 0);
+    assert.match(res.stderr, /--vfs-load.* is not allowed in NODE_OPTIONS/);
+  }
+
+  // --vfs-mount, by contrast, is accepted from the environment.
+  const mountFromEnv = spawnSync(
+    process.execPath, ['--experimental-vfs', `--vfs-load=${dir}`], {
+      encoding: 'utf8',
+      env: { ...process.env, NODE_OPTIONS: envArg('--vfs-mount', dir) },
+    });
+  assert.strictEqual(mountFromEnv.status, 0, mountFromEnv.stderr);
 }
 
 // --experimental-vfs and --vfs-mount may arrive from different places. The
