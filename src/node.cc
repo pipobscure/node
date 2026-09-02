@@ -133,6 +133,7 @@
 #include <cstdlib>
 #include <cstring>
 
+#include <algorithm>
 #include <string>
 #include <tuple>
 #include <vector>
@@ -392,7 +393,10 @@ MaybeLocal<Value> StartExecution(Environment* env,
     return StartExecution(env, "internal/main/watch_mode");
   }
 
-  if (!first_argv.empty() && first_argv != "-") {
+  // --vfs-load takes the entry point from a --vfs-mount, selected in
+  // prepareExecution(), so route to run_main_module even with no positional
+  // argument rather than falling through to the REPL/stdin.
+  if ((!first_argv.empty() && first_argv != "-") || env->options()->vfs_load) {
     return StartExecution(env, "internal/main/run_main_module");
   }
 
@@ -948,6 +952,10 @@ static ExitCode InitializeNodeWithArgsInternal(
 
   node_options = node_options_from_config + node_options_from_dotenv;
 
+  // How many --vfs-mount entries NODE_OPTIONS contributed; stays 0 when the
+  // environment is not consulted at all.
+  size_t env_vfs_mounts = 0;
+
 #if !defined(NODE_WITHOUT_NODE_OPTIONS)
   bool should_parse_node_options =
       !(flags & ProcessInitializationFlags::kDisableNodeOptionsEnv);
@@ -974,6 +982,10 @@ static ExitCode InitializeNodeWithArgsInternal(
       const ExitCode exit_code = ProcessGlobalArgsInternal(
           &env_argv, nullptr, errors, kAllowedInEnvvar);
       if (exit_code != ExitCode::kNoFailure) return exit_code;
+      // Everything --vfs-mount has collected so far came from the environment.
+      // See where this is used, below the command-line parse.
+      env_vfs_mounts =
+          per_process::cli_options->per_isolate->per_env->vfs_mounts.size();
     }
   } else {
     std::string node_repl_external_env = {};
@@ -1003,6 +1015,49 @@ static ExitCode InitializeNodeWithArgsInternal(
     exit_code =
         ProcessGlobalArgsInternal(argv, exec_argv, errors, kDisallowedInEnvvar);
     if (exit_code != ExitCode::kNoFailure) return exit_code;
+  }
+
+  // NODE_OPTIONS is parsed first, so its --vfs-mount entries would otherwise
+  // sit ahead of the command line's and --vfs-load's index would select them.
+  // Move them behind, leaving the command line (and config file) in front: the
+  // index then counts the mounts the invocation itself asked for, and an
+  // environment variable can add mounts but cannot decide which one the entry
+  // point runs from. Their relative order is preserved on both sides.
+  {
+    auto* env_options = per_process::cli_options->per_isolate->per_env.get();
+    auto& vfs_mounts = env_options->vfs_mounts;
+    if (env_vfs_mounts > 0 && env_vfs_mounts < vfs_mounts.size()) {
+      std::rotate(vfs_mounts.begin(),
+                  vfs_mounts.begin() + env_vfs_mounts,
+                  vfs_mounts.end());
+    }
+
+    // Checked here rather than in EnvironmentOptions::CheckOptions(), which
+    // runs at the end of every parse: NODE_OPTIONS is parsed before the command
+    // line, so a check there would reject `NODE_OPTIONS=--vfs-mount=x node
+    // --experimental-vfs` for an --experimental-vfs it had not read yet. These
+    // options only make sense as a set, so they are validated once all of them
+    // are in.
+    if (!env_options->experimental_vfs) {
+      if (!vfs_mounts.empty()) {
+        errors->push_back("--vfs-mount requires --experimental-vfs");
+      }
+      if (env_options->vfs_load) {
+        errors->push_back("--vfs-load requires --experimental-vfs");
+      }
+    }
+    if (env_options->vfs_load && vfs_mounts.empty()) {
+      errors->push_back("--vfs-load requires at least one --vfs-mount");
+    }
+    if (env_options->vfs_load && !vfs_mounts.empty() &&
+        env_options->vfs_load_index >= vfs_mounts.size()) {
+      errors->push_back("--vfs-load index is out of range for the number of "
+                        "--vfs-mount options given");
+    }
+    if (!env_options->vfs_load && env_options->vfs_load_index != 0) {
+      errors->push_back("--vfs-load-index requires --vfs-load");
+    }
+    if (!errors->empty()) return ExitCode::kInvalidCommandLineArgument;
   }
 
   // Set the process.title immediately after processing argv if --title is set.

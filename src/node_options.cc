@@ -641,6 +641,29 @@ EnvironmentOptionsParser::EnvironmentOptionsParser() {
             "experimental node:vfs module",
             BOOL_FIELD(experimental_vfs),
             kAllowedInEnvvar);
+  AddOption("--vfs-mount",
+            "mount a directory or archive as a virtual file system "
+            "(option can be repeated; requires --experimental-vfs)",
+            &EnvironmentOptions::vfs_mounts,
+            kAllowedInEnvvar);
+  // Choosing the entry point is the command line's alone: an environment
+  // variable must not be able to redirect what a `node <args>` invocation runs,
+  // so this and the index below are rejected in NODE_OPTIONS.
+  AddOption("--vfs-load",
+            "run the entry point and module resolution against a --vfs-mount "
+            "instead of the real file system, selected by the 0-based index "
+            "given as --vfs-load=<index> (default: 0, the first --vfs-mount; "
+            "requires --experimental-vfs and at least one --vfs-mount)",
+            BOOL_FIELD(vfs_load),
+            kDisallowedInEnvvar);
+  // Backs the optional index of `--vfs-load=<index>`. The parser has no
+  // optional-value type, so the `=` form is aliased onto this option plus the
+  // boolean above, the same way `--inspect=<port>` reaches `--inspect-port`.
+  AddOption("--vfs-load-index",
+            "", /* undocumented; the spelling is --vfs-load=<index> */
+            &EnvironmentOptions::vfs_load_index,
+            kDisallowedInEnvvar);
+  AddAlias("--vfs-load=", {"--vfs-load-index", "--vfs-load"});
   AddOption("--experimental-quic",
 #ifndef OPENSSL_NO_QUIC
             "experimental QUIC support",
