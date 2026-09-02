@@ -392,7 +392,7 @@ MaybeLocal<Value> StartExecution(Environment* env,
     return StartExecution(env, "internal/main/watch_mode");
   }
 
-  // --vfs-load takes the entry point from a --vfs-mount, selected in
+  // --vfs-load takes the entry point from the source it names, mounted in
   // prepareExecution(), so route to run_main_module even with no positional
   // argument rather than falling through to the REPL/stdin.
   if ((!first_argv.empty() && first_argv != "-") || env->options()->vfs_load) {
