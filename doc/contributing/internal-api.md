@@ -43,10 +43,3 @@ Enables tracing of promises for debugging and performance analysis.
 #### `--verify-base-objects`
 
 Allows verification of base objects for debugging purposes.
-
-#### `--vfs-load-index=index`
-
-Selects which `--vfs-mount` `--vfs-load` runs, by 0-based index. Not a separate
-feature: the options parser has no optional-value type, so `--vfs-load=index`
-is an alias for this flag plus `--vfs-load`, the same way `--inspect=port` is
-an alias for `--inspect-port` plus `--inspect`. Use `--vfs-load=index`.

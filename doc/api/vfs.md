@@ -149,7 +149,7 @@ vfs.registerProvider({
 
 ```console
 $ node --experimental-vfs --require ./provider.js \
-       --vfs-mount bundle.customfmt --vfs-load
+       --vfs-load bundle.customfmt
 ```
 
 ## Class: `VirtualFileSystem`

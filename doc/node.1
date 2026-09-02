@@ -1822,34 +1822,31 @@ amount of CPUs, but it may diverge in environments such as VMs or containers.
 .It Fl v , Fl -version
 Print node's version.
 .
-.It Fl -vfs-load Ns = Ns Ar [index]
+.It Fl -vfs-load Ns = Ns Ar source
 .Bl -bullet
 .It
-\fBindex\fR \fB<number>\fR The 0-based index of the \fB--vfs-mount\fR to load from.
-\fBDefault:\fR \fB0\fR, the first \fB--vfs-mount\fR.
+\fBsource\fR \fB<string>\fR A directory or an archive file to mount and run.
 .El
-Requires \fB--experimental-vfs\fR and at least one \fB--vfs-mount\fR.
-Runs the entry point (\fBprocess.argv[1]\fR) and all subsequent
-\fBrequire()\fR/\fBimport\fR resolution against the selected \fB--vfs-mount\fR rather
-than the real file system. The entry point is taken from that mount the same
-way \fBnode <directory>\fR takes one: the mount's own \fBpackage.json\fR \fB"main"\fR, or
-\fBindex.js\fR. Any positional command-line argument is the program's own
-(available from \fBprocess.argv[2]\fR onward), never an entry-point override.
-\fBprocess.argv[1]\fR reports the mounted source's real path rather than the
-reserved mount point, since the mount point is an opaque implementation
-detail.
-When \fBindex\fR does not name a given \fB--vfs-mount\fR, Node.js exits with an error.
-In worker threads \fB--vfs-load\fR has no effect: a worker re-mounts the same
-sources but runs its own entry point.
+Requires \fB--experimental-vfs\fR. May be given at most once.
+Mounts \fBsource\fR exactly as \fB--vfs-mount\fR does, and additionally runs the
+entry point and all subsequent \fBrequire()\fR/\fBimport\fR resolution against that
+mount rather than the real file system. The entry point is taken from the mount
+the same way \fBnode <directory>\fR takes one: the mount's own \fBpackage.json\fR
+\fB"main"\fR, or \fBindex.js\fR. Any positional command-line argument is the program's
+own (available from \fBprocess.argv[2]\fR onward), never an entry-point override.
+\fBprocess.argv[1]\fR reports \fBsource\fR rather than the reserved mount point, since
+the mount point is an opaque implementation detail.
+Mounting the same source twice mounts it twice, at two separate mount points.
+The entry point then comes from the mount \fB--vfs-load\fR itself contributed, not
+from an earlier \fB--vfs-mount\fR of the same source.
+In worker threads \fB--vfs-load\fR mounts but does not load: a worker inherits the
+same mounts, in the same order, and runs its own entry point.
 \fB--vfs-load\fR is not permitted in \fBNODE_OPTIONS\fR: which entry point runs is
 the command line's decision, and the environment must not be able to redirect
-it. \fB--vfs-mount\fR is permitted there, but mounts coming from \fBNODE_OPTIONS\fR are
-placed after those given on the command line, so \fBindex\fR counts the mounts the
-invocation itself asked for and an environment variable cannot change what
-\fB--vfs-load\fR selects.
+it.
 .Bd -literal
-$ node --experimental-vfs --vfs-mount=app.zip --vfs-load app.zip
-$ node --experimental-vfs --vfs-mount=lib.zip --vfs-mount=app.zip --vfs-load=1
+$ node --experimental-vfs --vfs-load=app.zip
+$ node --experimental-vfs --vfs-mount=lib.zip --vfs-load=app.zip
 .Ed
 .
 .It Fl -vfs-mount Ns = Ns Ar source
@@ -1861,10 +1858,13 @@ Requires \fB--experimental-vfs\fR. May be repeated to mount several sources.
 Mounts \fBsource\fR as a virtual file system (\fBnode:vfs\fR). Each mount is placed
 at a reserved mount point assigned by Node.js, so mounts never shadow real
 paths and no target can be chosen. Mounting alone does not change the entry
-point; pass \fB--vfs-load\fR to also run from a mount.
-Mounts keep the order they are given in, with any coming from \fBNODE_OPTIONS\fR
-placed after those from the command line. That order is what \fB--vfs-load\fR
-indexes.
+point; use \fB--vfs-load\fR for the source to run from.
+\fB--vfs-mount\fR and \fB--vfs-load\fR mount in the order they are written, so
+.Bd -literal
+$ node --experimental-vfs --vfs-mount=a --vfs-load=b --vfs-mount=c
+.Ed
+mounts \fBa\fR, \fBb\fR and \fBc\fR in that order and runs \fBb\fR. Mounts contributed by
+\fBNODE_OPTIONS\fR are mounted before the command line's.
 The provider backing a source is chosen from the source itself rather than from
 its file name:
 .Bl -bullet

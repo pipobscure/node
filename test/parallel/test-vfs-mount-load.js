@@ -3,8 +3,8 @@
 // Covers --vfs-mount / --vfs-load: running a mounted directory's entry point
 // with require() resolving inside the mount, a provider registered by either a
 // -r (CJS) or an --import (ESM) preload backing a non-directory source, a ZIP
-// archive claimed by the built-in provider, a worker inheriting the mounts, and
-// rejecting --vfs-load without a --vfs-mount.
+// archive claimed by the built-in provider, a worker inheriting the mounts,
+// and the position of --vfs-load among the mounts deciding which one runs.
 //
 // Native addon loading from a mount is not exercised here (it needs a compiled
 // .node), only the startup wiring around it.
@@ -29,6 +29,13 @@ function run(args) {
 // environment cannot carry a flag at all and there is nothing to assert.
 const hasNodeOptions = !process.config.variables.node_without_node_options;
 
+// NODE_OPTIONS is tokenized with shell-like quoting, so a path holding a space
+// or a quote - as the checkout directory does on some CI machines - has to be
+// quoted and escaped rather than interpolated raw.
+function envArg(flag, value) {
+  return `"${flag}=${value.replace(/[\\"]/g, '\\$&')}"`;
+}
+
 // A directory source: the entry point runs and require() resolves inside it.
 {
   const dir = fixture('app');
@@ -37,7 +44,7 @@ const hasNodeOptions = !process.config.variables.node_without_node_options;
                    "console.log(require('./lib/greet')());\n");
   fs.writeFileSync(path.join(dir, 'lib', 'greet.js'),
                    "module.exports = () => 'hello from inside the mount';\n");
-  const res = run(['--vfs-load', `--vfs-mount=${dir}`]);
+  const res = run([`--vfs-load=${dir}`]);
   assert.strictEqual(res.status, 0, res.stderr);
   assert.match(res.stdout, /hello from inside the mount/);
 }
@@ -74,7 +81,7 @@ vfs.registerProvider({
     Buffer.from('CUSTOMFMT'),
     Buffer.from("console.log('hello from custom provider');"),
   ]));
-  const res = run(['-r', providerModule, '--vfs-load', `--vfs-mount=${target}`]);
+  const res = run(['-r', providerModule, `--vfs-load=${target}`]);
   assert.strictEqual(res.status, 0, res.stderr);
   assert.match(res.stdout, /hello from custom provider/);
 }
@@ -108,7 +115,7 @@ registerProvider({
   ]));
   const res = run([
     '--import', pathToFileURL(providerModule).href,
-    '--vfs-load', `--vfs-mount=${target}`,
+    `--vfs-load=${target}`,
   ]);
   assert.strictEqual(res.status, 0, res.stderr);
   assert.match(res.stdout, /hello from ESM-imported provider/);
@@ -124,7 +131,7 @@ registerProvider({
   const chunks = [];
   for (const chunk of zlib.createZipArchiveSync([entry])) chunks.push(chunk);
   fs.writeFileSync(zipPath, Buffer.concat(chunks));
-  const res = run(['--vfs-load', `--vfs-mount=${zipPath}`]);
+  const res = run([`--vfs-load=${zipPath}`]);
   assert.strictEqual(res.status, 0, res.stderr);
   assert.match(res.stdout, /hello from zip archive/);
 }
@@ -146,56 +153,62 @@ w.on('error', (e) => { console.error(e); process.exit(1); });
 'use strict';
 require('worker_threads').parentPort.postMessage('hello from worker in mount');
 `);
-  const res = run(['--vfs-load', `--vfs-mount=${dir}`]);
+  const res = run([`--vfs-load=${dir}`]);
   assert.strictEqual(res.status, 0, res.stderr);
   assert.match(res.stdout, /hello from worker in mount/);
 }
 
-// --vfs-load requires a --vfs-mount to load from.
+// --vfs-load names the source it loads, so it always takes a value.
 {
   const res = run(['--vfs-load']);
   assert.notStrictEqual(res.status, 0);
-  assert.match(res.stderr, /--vfs-load requires at least one --vfs-mount/);
+  assert.match(res.stderr, /--vfs-load requires an argument/);
 }
 
-// --vfs-load[=index] selects which mount the entry point comes from. Two
-// mounts whose entries are distinguishable pin down which one ran.
+// --vfs-mount and --vfs-load share one ordered list, so mounts happen in the
+// order written and the entry point comes from whichever source --vfs-load
+// names, wherever it sits among them.
 {
-  const first = fixture('first');
-  const second = fixture('second');
-  for (const [dir, name] of [[first, 'first'], [second, 'second']]) {
-    fs.mkdirSync(dir, { recursive: true });
-    fs.writeFileSync(path.join(dir, 'index.js'), `console.log('entry:${name}');\n`);
+  const dirs = {};
+  for (const name of ['a', 'b', 'c']) {
+    dirs[name] = fixture(name);
+    fs.mkdirSync(dirs[name], { recursive: true });
+    fs.writeFileSync(path.join(dirs[name], 'index.js'),
+                     `console.log('ran:${name}');\n`);
   }
-  const mounts = [`--vfs-mount=${first}`, `--vfs-mount=${second}`];
 
-  // Bare --vfs-load defaults to index 0, the first mount.
-  const bare = run(['--vfs-load', ...mounts]);
-  assert.strictEqual(bare.status, 0, bare.stderr);
-  assert.match(bare.stdout, /entry:first/);
-
-  // An explicit index selects that mount, in either order relative to mounts.
-  for (const args of [['--vfs-load=1', ...mounts], [...mounts, '--vfs-load=1']]) {
+  for (const [args, expected] of [
+    [[`--vfs-load=${dirs.a}`, `--vfs-mount=${dirs.b}`], 'a'],
+    [[`--vfs-mount=${dirs.a}`, `--vfs-load=${dirs.b}`, `--vfs-mount=${dirs.c}`], 'b'],
+    [[`--vfs-mount=${dirs.a}`, `--vfs-mount=${dirs.b}`, `--vfs-load=${dirs.c}`], 'c'],
+    // The value may also be given as a separate argument.
+    [['--vfs-mount', dirs.a, '--vfs-load', dirs.b], 'b'],
+  ]) {
     const res = run(args);
     assert.strictEqual(res.status, 0, res.stderr);
-    assert.match(res.stdout, /entry:second/);
+    assert.match(res.stdout, new RegExp(`ran:${expected}`));
   }
+}
 
-  const zero = run([...mounts, '--vfs-load=0']);
-  assert.strictEqual(zero.status, 0, zero.stderr);
-  assert.match(zero.stdout, /entry:first/);
+// The same source given twice is mounted twice, at two mount points. The entry
+// point comes from the one --vfs-load contributed, not from the earlier mount
+// of the same source.
+{
+  const dir = fixture('twice');
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'index.js'),
+                   'console.log("dir:" + __dirname);\n');
 
-  // An index past the last --vfs-mount is rejected rather than silently
-  // falling back to a mount that was given.
-  const outOfRange = run([...mounts, '--vfs-load=2']);
-  assert.notStrictEqual(outOfRange.status, 0);
-  assert.match(outOfRange.stderr, /--vfs-load index is out of range/);
+  const res = run([`--vfs-mount=${dir}`, `--vfs-load=${dir}`]);
+  assert.strictEqual(res.status, 0, res.stderr);
+  const [, first] = /dir:(\S+)/.exec(res.stdout);
 
-  // The index is meaningless without --vfs-load, so asking for one is an error
-  // rather than a silently ignored flag.
-  const indexAlone = run([...mounts, '--vfs-load-index=1']);
-  assert.notStrictEqual(indexAlone.status, 0);
-  assert.match(indexAlone.stderr, /--vfs-load-index requires --vfs-load/);
+  // With the order reversed the entry point is the other mount point, which is
+  // what shows that the position decides and not the source.
+  const reversed = run([`--vfs-load=${dir}`, `--vfs-mount=${dir}`]);
+  assert.strictEqual(reversed.status, 0, reversed.stderr);
+  const [, second] = /dir:(\S+)/.exec(reversed.stdout);
+  assert.notStrictEqual(first, second);
 }
 
 // --vfs-load picks the entry point, so it is refused in NODE_OPTIONS: the
@@ -207,14 +220,12 @@ if (hasNodeOptions) {
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(path.join(dir, 'index.js'), 'console.log("ran");\n');
 
-  for (const flag of ['--vfs-load', '--vfs-load=0', '--vfs-load-index=0']) {
-    const res = spawnSync(
-      process.execPath,
-      ['--experimental-vfs', `--vfs-mount=${dir}`],
-      { encoding: 'utf8', env: { ...process.env, NODE_OPTIONS: flag } });
-    assert.notStrictEqual(res.status, 0, `${flag} was accepted in NODE_OPTIONS`);
-    assert.match(res.stderr, /is not allowed in NODE_OPTIONS/);
-  }
+  const res = spawnSync(
+    process.execPath, ['--experimental-vfs'],
+    { encoding: 'utf8',
+      env: { ...process.env, NODE_OPTIONS: envArg('--vfs-load', dir) } });
+  assert.notStrictEqual(res.status, 0);
+  assert.match(res.stderr, /is not allowed in NODE_OPTIONS/);
 }
 
 // --experimental-vfs and --vfs-mount may arrive from different places. The
@@ -227,51 +238,49 @@ if (hasNodeOptions) {
   fs.writeFileSync(path.join(dir, 'index.js'), 'console.log("ran");\n');
 
   const res = spawnSync(
-    process.execPath, ['--experimental-vfs', '--vfs-load'],
+    process.execPath, ['--experimental-vfs', `--vfs-load=${dir}`],
     { encoding: 'utf8',
-      env: { ...process.env, NODE_OPTIONS: `--vfs-mount=${dir}` } });
+      env: { ...process.env, NODE_OPTIONS: envArg('--vfs-mount', dir) } });
   assert.strictEqual(res.status, 0, res.stderr);
   assert.match(res.stdout, /ran/);
 }
 
-// --vfs-mount is allowed in NODE_OPTIONS, but NODE_OPTIONS is parsed first, so
-// its mounts are moved behind the command line's. The index therefore counts
-// the mounts the invocation asked for, and the environment cannot change which
-// mount --vfs-load runs; env mounts stay reachable at the higher indices.
+// --vfs-mount is allowed in NODE_OPTIONS and adds to the same ordered list.
+// Because --vfs-load names its source rather than counting a position, it no
+// longer matters that the environment is parsed first: what the command line
+// loads is unaffected by how many mounts the environment contributed.
 if (hasNodeOptions) {
   const dirs = {};
-  for (const name of ['envA', 'envB', 'cliX', 'cliY']) {
+  for (const name of ['envA', 'cliX']) {
     dirs[name] = fixture(name);
     fs.mkdirSync(dirs[name], { recursive: true });
     fs.writeFileSync(path.join(dirs[name], 'index.js'),
                      `console.log('ran:${name}');\n`);
   }
-  const withEnvMounts = (args) => spawnSync(
-    process.execPath, ['--experimental-vfs', ...args], {
+
+  const res = spawnSync(
+    process.execPath, ['--experimental-vfs', `--vfs-load=${dirs.cliX}`], {
       encoding: 'utf8',
-      env: {
-        ...process.env,
-        NODE_OPTIONS: `--vfs-mount=${dirs.envA} --vfs-mount=${dirs.envB}`,
-      },
+      env: { ...process.env, NODE_OPTIONS: envArg('--vfs-mount', dirs.envA) },
     });
-  const cliMounts = [`--vfs-mount=${dirs.cliX}`, `--vfs-mount=${dirs.cliY}`];
+  assert.strictEqual(res.status, 0, res.stderr);
+  assert.match(res.stdout, /ran:cliX/);
+}
 
-  for (const [flag, expected] of [
-    ['--vfs-load', 'cliX'],   // Default index 0 is the first command-line mount
-    ['--vfs-load=1', 'cliY'],
-    ['--vfs-load=2', 'envA'], // Env mounts follow, in the order given
-    ['--vfs-load=3', 'envB'],
-  ]) {
-    const res = withEnvMounts([...cliMounts, flag]);
-    assert.strictEqual(res.status, 0, res.stderr);
-    assert.match(res.stdout, new RegExp(`ran:${expected}`));
-  }
+// A mount source holding spaces or quotes survives NODE_OPTIONS when quoted,
+// which is the only way such a path can be expressed there at all.
+if (hasNodeOptions) {
+  const dir = path.join(tmpdir.path, `${id++}-od d "q" $x`);
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'index.js'), 'console.log("ran:odd");\n');
 
-  // With no command-line mount there is nothing to put in front, so an
-  // environment mount is still what index 0 selects.
-  const envOnly = withEnvMounts(['--vfs-load']);
-  assert.strictEqual(envOnly.status, 0, envOnly.stderr);
-  assert.match(envOnly.stdout, /ran:envA/);
+  const res = spawnSync(
+    process.execPath, ['--experimental-vfs', `--vfs-load=${dir}`], {
+      encoding: 'utf8',
+      env: { ...process.env, NODE_OPTIONS: envArg('--vfs-mount', dir) },
+    });
+  assert.strictEqual(res.status, 0, res.stderr);
+  assert.match(res.stdout, /ran:odd/);
 }
 
 // Under --vfs-load the entry point comes from the mount, so no positional
@@ -284,14 +293,14 @@ if (hasNodeOptions) {
                    'console.log(JSON.stringify(process.argv.slice(1)));\n');
 
   for (const extra of [[], ['alpha'], ['alpha', 'beta']]) {
-    const res = run(['--vfs-load', `--vfs-mount=${dir}`, ...extra]);
+    const res = run([`--vfs-load=${dir}`, ...extra]);
     assert.strictEqual(res.status, 0, res.stderr);
     assert.deepStrictEqual(JSON.parse(res.stdout), [dir, ...extra]);
   }
 
   // A path-like argument must not be resolved against the real file system the
   // way a genuine entry-point argument would be.
-  const res = run(['--vfs-load', `--vfs-mount=${dir}`, './not/an/entry.js']);
+  const res = run([`--vfs-load=${dir}`, './not/an/entry.js']);
   assert.strictEqual(res.status, 0, res.stderr);
   assert.deepStrictEqual(JSON.parse(res.stdout), [dir, './not/an/entry.js']);
 }

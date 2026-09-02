@@ -178,7 +178,6 @@ class EnvironmentOptions : public Options {
   std::vector<std::string> user_argv;
 
   int64_t heap_snapshot_near_heap_limit = 0;
-  uint64_t vfs_load_index = 0;
   uint64_t network_family_autoselection_attempt_timeout = 500;
   uint64_t max_http_header_size = 16 * 1024;
   uint64_t test_runner_concurrency = 0;
