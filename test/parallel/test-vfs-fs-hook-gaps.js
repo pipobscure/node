@@ -107,6 +107,5 @@ test('a closed Dir can be disposed asynchronously', async () => {
   const dir = mount((l) => l.mkdirSync('/d'));
   const handle = fs.opendirSync(dir);
   handle.closeSync();
-  // Disposal is idempotent on a real Dir.
   await handle[Symbol.asyncDispose]();
 });
