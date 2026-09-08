@@ -9,6 +9,7 @@
 #include "util.h"
 
 #include <string>
+#include <utility>
 #include <vector>
 
 #ifdef _WIN32
@@ -474,63 +475,28 @@ int NodeMemfdCreate(const char* name, unsigned int flags) {
   return static_cast<int>(syscall(SYS_memfd_create, name, flags));
 }
 #endif  // __linux__
-#endif  // !_WIN32
-
-// Materializes native-addon bytes into a form dlopen()/LoadLibrary() can load,
-// with the smallest, most private on-disk footprint each platform allows:
-//   Linux:        an anonymous in-memory memfd, loaded via /proc/self/fd/N -
-//                 the bytes never touch the filesystem.
-//   other POSIX:  a 0700 mkdtemp() directory plus an O_EXCL|O_NOFOLLOW file,
-//                 unlink()ed right after the load (the mapping keeps it alive).
-//   Windows:      a temp file opened FILE_FLAG_DELETE_ON_CLOSE; its handle is
-//                 retained for the process lifetime so the file is removed
-//                 automatically once the process (and the loaded DLL) exit.
-// Used for an addon that lives somewhere dlopen() cannot open by path, such as
-// a virtual file system.
-class AddonImage {
- public:
-  AddonImage() = default;
-  ~AddonImage();
-  AddonImage(const AddonImage&) = delete;
-  AddonImage& operator=(const AddonImage&) = delete;
-
-  // The directory a temporary image would be written to, with a trailing
-  // separator; empty when it cannot be determined. Names the resource for the
-  // file-system permission check.
-  static std::string TempDir();
-
-  // On success sets path() to a real, loadable path for `data`.
-  bool Materialize(const char* data, size_t len);
-  const std::string& path() const { return path_; }
-  const std::string& errmsg() const { return errmsg_; }
-
-  // Call exactly once, right after DLib::Open(); `opened` says whether the load
-  // succeeded. Releases the transient resources that are no longer needed (a
-  // successful load holds its own mapping): on POSIX closes the memfd or
-  // unlinks the temp file; on Windows retains the delete-on-close handle for
-  // the process lifetime when opened, or closes it (deleting the file) on
-  // failure.
-  void AfterOpen(bool opened);
-
- private:
-  std::string path_;
-  std::string errmsg_;
-  bool consumed_ = false;
-#ifdef _WIN32
-  HANDLE handle_ = INVALID_HANDLE_VALUE;
-#else
-  bool MaterializeTempFile(const char* data, size_t len);
-  int fd_ = -1;
-  std::string temp_dir_;  // non-empty only for the temp-file (non-memfd) path
-#endif
-};
-
-#ifdef _WIN32
+#else   // _WIN32
 
 // Delete-on-close handles kept alive until process exit so their temp files
 // outlive the loaded DLLs and are removed once the process ends.
 Mutex g_retained_addon_handles_mutex;
 std::vector<HANDLE>* g_retained_addon_handles = nullptr;
+
+#endif  // !_WIN32
+
+}  // namespace
+
+// AddonImage is declared in node_binding.h so that the other loader of
+// dynamically shared objects, node_ffi.cc, can reuse it; see the header for
+// the platform-by-platform description.
+
+AddonImage::AddonImage() {
+#ifdef _WIN32
+  handle_ = INVALID_HANDLE_VALUE;
+#endif
+}
+
+#ifdef _WIN32
 
 // static
 std::string AddonImage::TempDir() {
@@ -729,8 +695,6 @@ AddonImage::~AddonImage() {
 }
 
 #endif  // _WIN32
-
-}  // namespace
 
 // Shared by process.dlopen() and the internal dlopenBinary(). `allow_binary`
 // says whether args[3] may carry the addon's bytes; it is false for
