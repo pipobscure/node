@@ -561,7 +561,8 @@ void DynamicLibrary::New(const FunctionCallbackInfo<Value>& args) {
   CHECK(lib->is_closed());
   // Open the library
   const bool opened = uv_dlopen(library_path, &lib->lib_) == 0;
-  image.AfterOpen(opened);
+  image.AfterOpen(opened, opened ? static_cast<void*>(lib->lib_.handle)
+                                 : nullptr);
   if (!opened) {
     THROW_ERR_FFI_CALL_FAILED(env, "dlopen failed: %s", uv_dlerror(&lib->lib_));
     return;
