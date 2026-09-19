@@ -203,6 +203,11 @@ const mountPoint = myVfs.mount();
 fs.readFileSync(`${mountPoint}/data.txt`, 'utf8'); // 'Hello'
 ```
 
+Like any mount point, the mount point cannot be removed or renamed, nor
+replaced by renaming something else onto it: [`fs.rmdir()`][] and
+[`fs.rename()`][] fail with `EBUSY`. A recursive [`fs.rm()`][] of the mount
+point empties the file system before failing the same way.
+
 Each `VirtualFileSystem` instance may be mounted at most once at a
 time. Attempting to mount an already-mounted instance throws
 `ERR_INVALID_STATE`. Because each instance mounts inside its own
@@ -379,6 +384,33 @@ The promise namespace mirrors `fs.promises` and includes `readFile`,
 `unlink`, `rename`, `copyFile`, `realpath`, `readlink`, `symlink`,
 `access`, `rm`, `truncate`, `link`, `mkdtemp`, `chmod`, `chown`, `lchown`,
 `utimes`, `lutimes`, `open`, `lchmod`, and `watch`.
+
+## The reserved root directory
+
+While any virtual file system is mounted, the directory that holds the mount
+points, `path.join(os.devNull, 'vfs')`, can be read through [`node:fs`][]. It
+contains a directory for every mounted file system, named like the last segment
+of its [`vfs.mountPoint`][].
+
+```cjs
+const vfs = require('node:vfs');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+
+const root = path.join(os.devNull, 'vfs');
+const assets = vfs.create();
+assets.writeFileSync('/logo.svg', '<svg/>');
+const mountPoint = assets.mount();
+
+fs.readdirSync(root); // e.g. [ '0' ]
+path.join(root, fs.readdirSync(root)[0]) === mountPoint; // true
+fs.readdirSync(root, { recursive: true }); // e.g. [ '0', '0/logo.svg' ]
+```
+
+The root directory itself is read-only. Creating, removing, or changing its
+entries fails with `EROFS`, while the file systems its entries lead to can be
+written to as usual. When nothing is mounted, the root directory does not exist.
 
 ## Module loader integration
 
@@ -711,6 +743,9 @@ fields use synthetic but stable values:
 [`ffi.dlopen()`]: ffi.md#ffidlopenpath-definitions
 [`fs.BigIntStats`]: fs.md#class-fsstats
 [`fs.Stats`]: fs.md#class-fsstats
+[`fs.rename()`]: fs.md#fsrenameoldpath-newpath-callback
+[`fs.rm()`]: fs.md#fsrmpath-options-callback
+[`fs.rmdir()`]: fs.md#fsrmdirpath-options-callback
 [`import.meta.resolve()`]: esm.md#importmetaresolvespecifier
 [`new ffi.DynamicLibrary()`]: ffi.md#new-dynamiclibrarypath
 [`node:fs`]: fs.md
